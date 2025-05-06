@@ -6,6 +6,7 @@ depth quad.vs depth.fs
 multi basic.vs multi.fs
 compute test.cs
 plain basic.vs plain.fs
+gbuffer_fill basic.vs gbuffer_fill.fs
 
 \test.cs
 #version 430 core
@@ -122,6 +123,7 @@ uniform float u_shadow_biases[10];
 
 out vec4 FragColor;
 
+
 float computeShadow(int shadow_num) {                    
     vec4 light_space_pos = u_shadow_vps[shadow_num] * vec4(v_world_position, 1.0);
     vec3 proj_coords = light_space_pos.xyz / light_space_pos.w;
@@ -235,6 +237,9 @@ uniform samplerCube u_texture;
 uniform vec3 u_camera_position;
 out vec4 FragColor;
 
+layout(location = 0) out vec4 gbuffer_albedo;
+layout(location = 1) out vec4 gbuffer_normal_mat;
+
 void main()
 {
 	vec3 E = v_world_position - u_camera_position;
@@ -343,4 +348,32 @@ void main()
 {
 	//Some alpha testing would be good here
 	FragColor = vec4(0.0, 0.0, 0.0, 1.0);
+}
+
+\gbuffer_fill.fs
+
+#version 330 core
+
+in vec3 v_position;
+in vec3 v_world_position;
+in vec3 v_normal;
+in vec2 v_uv;
+in vec4 v_color;
+
+uniform vec4 u_color;
+uniform sampler2D u_texture;
+
+//<CODE OF ATTRIBUTES AND UNIFORMS>
+
+// This replaces the out vec4 FragColor:
+layout(location = 0) out vec4 gbuffer_albedo;
+layout(location = 1) out vec4 gbuffer_normal_mat;
+
+void main()
+{
+	vec2 uv = v_uv;
+	vec4 color = u_color;
+	color *= texture( u_texture, v_uv );
+	gbuffer_albedo = color;
+	gbuffer_normal_mat = vec4((1 + normalize(v_normal))/2, 1.0);
 }

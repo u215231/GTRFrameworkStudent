@@ -1,8 +1,5 @@
 #pragma once
-#include "scene.h"
-#include "prefab.h"
-#include "light.h"
-#include "camera.h"
+
 #include "deferred.h"
 
 
@@ -75,7 +72,7 @@ namespace SCN {
 		std::vector<Camera*> camera_light_list; //lab 3
 		SCN::sShadowCommand shadow_command;
 
-		RenderPipeline current_pipeline = RenderPipeline::FORWARD; //default for now
+		RenderPipeline current_pipeline = RenderPipeline::DEFERRED; //default for now
 		Deferred deferred;
 		
 		//updated every frames
