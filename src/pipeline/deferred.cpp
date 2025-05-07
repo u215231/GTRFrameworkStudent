@@ -86,6 +86,7 @@ void Deferred::render(const Matrix44 model, GFX::Mesh* mesh, SCN::Material* mate
 	shader->setUniform("u_viewprojection", camera->viewprojection_matrix);
 	shader->setUniform("u_camera_position", camera->eye);
 
+
 	//do the draw call that renders the mesh into the screen
 	mesh->render(GL_TRIANGLES);
 

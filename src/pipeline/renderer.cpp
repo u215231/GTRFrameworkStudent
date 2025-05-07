@@ -372,7 +372,7 @@ void Renderer::renderMeshWithMaterial(const Matrix44 model, GFX::Mesh* mesh, SCN
 
 	glEnable(GL_DEPTH_TEST);
 
-	//chose a shader
+	//choose a shader
 	shader = GFX::Shader::Get("texture");
 
 	assert(glGetError() == GL_NO_ERROR);
@@ -512,6 +512,19 @@ void Renderer::showUI()
 		//Bias slider
 		float& bias = this->shadow_command.biases[selected_light];
 		ImGui::SliderFloat("Bias", &bias, 0.0001f, 0.1f, "%.5f");
+	}
+
+	//Render mode UI
+	static int selected_mode = 0;
+	ImGui::Separator();
+	ImGui::Text("Render Mode Selector");
+	ImGui::SliderInt("Mode Index", &selected_mode, 0, 1);
+
+	if (selected_mode == 0) {
+		current_pipeline = RenderPipeline::FORWARD;
+	}
+	else {
+		current_pipeline = RenderPipeline::DEFERRED;
 	}
 }
 
