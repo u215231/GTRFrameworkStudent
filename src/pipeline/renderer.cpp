@@ -44,7 +44,7 @@ Renderer::Renderer(const char* shader_atlas_filename)
 	sphere.createSphere(1.0f);
 	sphere.uploadToVRAM();
 
-	deferred.initGBuffer(1024, 1024);
+	deferred.initGBuffer(1024, 768);
 }
 
 void Renderer::setupScene()
@@ -93,6 +93,22 @@ void Renderer::parsePrefabs(std::vector<SCN::PrefabEntity*> prefab_list, Camera*
 		Node* node = &prefab->root;
 		this->parseNode(node, camera);
 	}
+
+	// Sort opaque objects from nearest to farthest
+	std::sort(this->draw_command_opaque_list.begin(), this->draw_command_opaque_list.end(),
+		[&](const sDrawCommand& a, const sDrawCommand& b) {
+			float distA = (camera->eye - a.model.getTranslation()).length();
+			float distB = (camera->eye - b.model.getTranslation()).length();
+			return distA < distB; // Closest first
+		});
+
+	// Sort transparent objects from farthest to nearest
+	std::sort(this->draw_command_transparent_list.begin(), this->draw_command_transparent_list.end(),
+		[&](const sDrawCommand& a, const sDrawCommand& b) {
+			float distA = (camera->eye - a.model.getTranslation()).length();
+			float distB = (camera->eye - b.model.getTranslation()).length();
+			return distA > distB; // Farthest first
+		});
 }
 
 void Renderer::parseLights(std::vector<SCN::LightEntity*> light_list, SCN::Scene* scene)
@@ -131,7 +147,7 @@ void Renderer::parseShadows(std::vector<Camera*> camera_light_list) {
 		this->shadow_command.slots[j] = 2 + j;
 		this->shadow_command.depth_textures[j] = this->shadow_FBOs.at(j)->depth_texture;
 		this->shadow_command.view_projections[j] = light_camera->viewprojection_matrix;
-		if ((this->shadow_command.biases[j] == 0.0f) || (this->shadow_command.biases[j] == NULL)) {
+		if (this->shadow_command.biases[j] == 0.0f) {
 			this->shadow_command.biases[j] = 0.005f;
 		}
 		j++;
@@ -140,7 +156,10 @@ void Renderer::parseShadows(std::vector<Camera*> camera_light_list) {
 
 void Renderer::parseCameraLights(std::vector<SCN::LightEntity*> light_list)
 {
-	for (Camera* c : this->camera_light_list) { delete c; }
+	for (Camera* light_camera : this->camera_light_list) { 
+		delete light_camera;
+	}
+
 	this->camera_light_list.clear();
 
 	for (LightEntity* light : light_list) {
@@ -218,59 +237,10 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 		this->renderShadows(camera_light, shadow_fbo);
 	}
 
-	if (current_pipeline == RenderPipeline::DEFERRED) {
-		deferred.gbuffer_FBO->bind();
-
-		// Set the clear color (the background color)
-		glClearColor(scene->background_color.x, scene->background_color.y, scene->background_color.z, 1.0);
-		
-		// Clear the color and the depth buffer
-		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-		GFX::checkGLErrors();
-
-		// Render skybox
-		if (this->skybox_cubemap) {
-			this->renderSkybox(this->skybox_cubemap);
-		}
-
-		// Sort opaque objects from nearest to farthest
-		std::sort(this->draw_command_opaque_list.begin(), this->draw_command_opaque_list.end(),
-			[&](const sDrawCommand& a, const sDrawCommand& b) {
-				float distA = (camera->eye - a.model.getTranslation()).length();
-				float distB = (camera->eye - b.model.getTranslation()).length();
-				return distA < distB; // Closest first
-			});
-
-		//// Sort transparent objects from farthest to nearest
-		//std::sort(this->draw_command_transparent_list.begin(), this->draw_command_transparent_list.end(),
-		//	[&](const sDrawCommand& a, const sDrawCommand& b) {
-		//		float distA = (camera->eye - a.model.getTranslation()).length();
-		//		float distB = (camera->eye - b.model.getTranslation()).length();
-		//		return distA > distB; // Farthest first
-		//	});
-
-		// Render opaque entities
-		for (sDrawCommand draw_command : this->draw_command_opaque_list) {
-			this->deferred.render(draw_command.model,
-								  draw_command.mesh, 
-				                  draw_command.material);
-		}
-
-		glEnable(GL_BLEND);
-		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-
-		//// Render transparent entities
-		//for (sDrawCommand draw_command : this->draw_command_transparent_list) {
-		//	this->renderMeshWithMaterial(draw_command.model,
-		//		draw_command.mesh, draw_command.material);
-		//}
-
-		glDisable(GL_BLEND);
-
-		deferred.gbuffer_FBO->unbind();
+	if (this->current_pipeline == RenderPipeline::DEFERRED) {
+		this->renderDeferred();
 	}
 	else {
-
 		// Set the clear color (the background color)
 		glClearColor(scene->background_color.x, scene->background_color.y, scene->background_color.z, 1.0);
 
@@ -282,27 +252,12 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 		if (this->skybox_cubemap) {
 			this->renderSkybox(this->skybox_cubemap);
 		}
-
-		// Sort opaque objects from nearest to farthest
-		std::sort(this->draw_command_opaque_list.begin(), this->draw_command_opaque_list.end(),
-			[&](const sDrawCommand& a, const sDrawCommand& b) {
-				float distA = (camera->eye - a.model.getTranslation()).length();
-				float distB = (camera->eye - b.model.getTranslation()).length();
-				return distA < distB; // Closest first
-			});
-
-		// Sort transparent objects from farthest to nearest
-		std::sort(this->draw_command_transparent_list.begin(), this->draw_command_transparent_list.end(),
-			[&](const sDrawCommand& a, const sDrawCommand& b) {
-				float distA = (camera->eye - a.model.getTranslation()).length();
-				float distB = (camera->eye - b.model.getTranslation()).length();
-				return distA > distB; // Farthest first
-			});
 
 		// Render opaque entities
 		for (sDrawCommand draw_command : this->draw_command_opaque_list) {
 			this->renderMeshWithMaterial(draw_command.model,
-				draw_command.mesh, draw_command.material);
+										 draw_command.mesh, 
+				                         draw_command.material);
 		}
 
 		glEnable(GL_BLEND);
@@ -311,7 +266,8 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 		// Render transparent entities
 		for (sDrawCommand draw_command : this->draw_command_transparent_list) {
 			this->renderMeshWithMaterial(draw_command.model,
-				draw_command.mesh, draw_command.material);
+										 draw_command.mesh, 
+				                         draw_command.material);
 		}
 
 		glDisable(GL_BLEND);
@@ -435,6 +391,40 @@ void Renderer::renderMeshWithMaterial(const Matrix44 model, GFX::Mesh* mesh, SCN
 	glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 }
 
+void Renderer::renderDeferred()
+{
+	this->deferred.gbuffer_FBO->bind();
+
+	// Set the clear color (the background color)
+	glClearColor(scene->background_color.x, scene->background_color.y, scene->background_color.z, 1.0);
+
+	// Clear the color and the depth buffer
+	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+	GFX::checkGLErrors();
+
+	// Render skybox
+	if (this->skybox_cubemap) {
+		this->renderSkybox(this->skybox_cubemap);
+	}
+
+	// Render opaque entities
+	for (sDrawCommand draw_command : this->draw_command_opaque_list) {
+		this->deferred.render(draw_command.model,
+						      draw_command.mesh,
+			                  draw_command.material);
+	}
+
+	glEnable(GL_BLEND);
+	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+	glDisable(GL_BLEND);
+	
+	this->deferred.gbuffer_FBO->unbind();
+
+
+	this->deferred.gbuffer_FBO->color_textures[2]->toViewport();
+}
+
 //to render shadows (lab 3)
 void Renderer::renderShadows(Camera* light_camera, GFX::FBO* shadow_fbo) 
 {
@@ -446,7 +436,10 @@ void Renderer::renderShadows(Camera* light_camera, GFX::FBO* shadow_fbo)
 
 	//Render the meshes with the point of view of the light camera
 	for (sDrawCommand& draw_command : this->draw_command_opaque_list) {
-		this->renderPlain(light_camera, draw_command.model, draw_command.mesh, draw_command.material);
+		this->renderPlain(light_camera, 
+			              draw_command.model, 
+			              draw_command.mesh, 
+			              draw_command.material);
 	}
 
 	//Check parameters of the orthographic first!
@@ -464,7 +457,6 @@ void Renderer::renderPlain(Camera* camera, const Matrix44 model, GFX::Mesh* mesh
 	GFX::Shader* shader = nullptr;
 	glEnable(GL_DEPTH_TEST);
 
-	//use plain shader
 	shader = GFX::Shader::Get("plain");
 
 	assert(glGetError() == GL_NO_ERROR);

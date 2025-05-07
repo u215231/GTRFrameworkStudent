@@ -105,8 +105,9 @@ namespace SCN {
 		//to render one mesh given its material and transformation matrix
 		void renderMeshWithMaterial(const Matrix44 model, GFX::Mesh* mesh, SCN::Material* material) const;
 
+		void renderDeferred();
+
 		//render the shadows given a light and an FBO
-		//void renderShadows(LightEntity* light, GFX::FBO* shadow_FBO);
 		void renderShadows(Camera* light_camera, GFX::FBO* shadow_fbo);
 
 		//render the an entity from the point of view of the light camera

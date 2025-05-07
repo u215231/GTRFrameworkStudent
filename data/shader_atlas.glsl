@@ -363,17 +363,31 @@ in vec4 v_color;
 uniform vec4 u_color;
 uniform sampler2D u_texture;
 
-//<CODE OF ATTRIBUTES AND UNIFORMS>
+uniform mat4 u_model;
+uniform mat4 u_viewprojection;
+uniform vec3 u_camera_position;
 
 // This replaces the out vec4 FragColor:
 layout(location = 0) out vec4 gbuffer_albedo;
-layout(location = 1) out vec4 gbuffer_normal_mat;
+layout(location = 1) out vec4 gbuffer_normal_map;
+layout(location = 2) out vec4 gbuffer_depth_map;
 
 void main()
 {
 	vec2 uv = v_uv;
 	vec4 color = u_color;
-	color *= texture( u_texture, v_uv );
+	
+	color *= texture( u_texture, uv );
 	gbuffer_albedo = color;
-	gbuffer_normal_mat = vec4((1 + normalize(v_normal))/2, 1.0);
+	
+	gbuffer_normal_map = vec4((1 + normalize(v_normal))/2, 1.0);
+
+	
+	float depth = texture(u_texture, uv).r;
+	float depth_clip = depth * 2.0 - 1.0;
+	vec2 uv_clip = uv * 2.0 - 1.0;
+	vec4 clip_coords = vec4(uv_clip.x, uv_clip.y, depth_clip, 1.0);
+	vec4 not_norm_world_pos = u_viewprojection * clip_coords;
+	vec3 world_pos = not_norm_world_pos.xyz / not_norm_world_pos.w;
+	gbuffer_depth_map = vec4(world_pos, 1.0);
 }
