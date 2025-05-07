@@ -363,9 +363,7 @@ in vec4 v_color;
 uniform vec4 u_color;
 uniform sampler2D u_texture;
 
-//<CODE OF ATTRIBUTES AND UNIFORMS>
-
-// This replaces the out vec4 FragColor:
+//This replaces the out vec4 FragColor:
 layout(location = 0) out vec4 gbuffer_albedo;
 layout(location = 1) out vec4 gbuffer_normal_mat;
 

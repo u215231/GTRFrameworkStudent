@@ -44,7 +44,7 @@ Renderer::Renderer(const char* shader_atlas_filename)
 	sphere.createSphere(1.0f);
 	sphere.uploadToVRAM();
 
-	deferred.initGBuffer(1024, 1024);
+	deferred.initGBuffer(1024, 768);
 }
 
 void Renderer::setupScene()
