@@ -367,7 +367,6 @@ uniform mat4 u_model;
 uniform mat4 u_viewprojection;
 uniform vec3 u_camera_position;
 
-// This replaces the out vec4 FragColor:
 layout(location = 0) out vec4 gbuffer_albedo;
 layout(location = 1) out vec4 gbuffer_normal_map;
 layout(location = 2) out vec4 gbuffer_depth_map;
