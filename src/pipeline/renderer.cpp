@@ -26,6 +26,7 @@ GFX::Mesh sphere;
 
 Renderer::Renderer(const char* shader_atlas_filename)
 {
+	this->current_pipeline = RenderPipeline::DEFERRED;
 	this->render_wireframe = false;
 	this->render_boundaries = false;
 	this->scene = nullptr;
@@ -44,7 +45,19 @@ Renderer::Renderer(const char* shader_atlas_filename)
 	sphere.createSphere(1.0f);
 	sphere.uploadToVRAM();
 
-	deferred.initGBuffer(1024, 768);
+	this->deferred_command.initGBuffer(1024, 768);
+}
+
+Renderer::~Renderer()
+{
+	if (this->scene) {
+		delete this->scene;
+		this->scene = nullptr;
+	}
+	if (this->skybox_cubemap) {
+		delete this->skybox_cubemap;
+		this->skybox_cubemap = nullptr;
+	}
 }
 
 void Renderer::setupScene()
@@ -58,34 +71,31 @@ void Renderer::setupScene()
 	}
 }
 
-
-void Renderer::parseNode(SCN::Node* node, Camera* cam)
+// Store Children Prefab Entities
+void Renderer::parseNode(Node* node, Camera* cam)
 {
 	if (!node) {
 		return;
 	}
 
 	if (node->mesh) {
-		sDrawCommand draw_command;
-		draw_command.mesh = node->mesh;
-		draw_command.material = node->material;
-		draw_command.model = node->getGlobalMatrix();
-
+		DrawCommand draw = DrawCommand(node->mesh, 
+			             node->material, 
+			             node->getGlobalMatrix());
 		if (node->material->alpha_mode == NO_ALPHA) {
-			this->draw_command_opaque_list.push_back(draw_command);
+			this->draw_command_opaque_list.push_back(draw);
 		}
 		else {
-			this->draw_command_transparent_list.push_back(draw_command);
+			this->draw_command_transparent_list.push_back(draw);
 		}
 	}
 
-	// Store Children Prefab Entities
-	for (SCN::Node* child : node->children) {
+	for (Node* child : node->children) {
 		this->parseNode(child, cam);
 	}
 }
 
-void Renderer::parsePrefabs(std::vector<SCN::PrefabEntity*> prefab_list, Camera* camera)
+void Renderer::parsePrefabs(std::vector<PrefabEntity*> prefab_list, Camera* camera)
 {
 	this->draw_command_opaque_list.clear();
 	this->draw_command_transparent_list.clear();
@@ -96,104 +106,36 @@ void Renderer::parsePrefabs(std::vector<SCN::PrefabEntity*> prefab_list, Camera*
 
 	// Sort opaque objects from nearest to farthest
 	std::sort(this->draw_command_opaque_list.begin(), this->draw_command_opaque_list.end(),
-		[&](const sDrawCommand& a, const sDrawCommand& b) {
+		[&](const DrawCommand& a, const DrawCommand& b) {
 			float distA = (camera->eye - a.model.getTranslation()).length();
 			float distB = (camera->eye - b.model.getTranslation()).length();
-			return distA < distB; // Closest first
+			return distA < distB;
 		});
 
 	// Sort transparent objects from farthest to nearest
 	std::sort(this->draw_command_transparent_list.begin(), this->draw_command_transparent_list.end(),
-		[&](const sDrawCommand& a, const sDrawCommand& b) {
+		[&](const DrawCommand& a, const DrawCommand& b) {
 			float distA = (camera->eye - a.model.getTranslation()).length();
 			float distB = (camera->eye - b.model.getTranslation()).length();
-			return distA > distB; // Farthest first
+			return distA > distB;
 		});
-}
-
-void Renderer::parseLights(std::vector<SCN::LightEntity*> light_list, SCN::Scene* scene)
-{
-	this->light_command.num_lights = min(MAX_NUM_LIGHTS, (int)light_list.size());
-	int i = 0;
-	for (LightEntity* light : light_list) {
-		this->light_command.positions[i] = light->root.getGlobalMatrix().getTranslation();
-		this->light_command.intensities[i] = light->intensity;
-		this->light_command.types[i] = light->light_type;
-		this->light_command.colors[i] = light->color;
-
-		if (light->light_type == eLightType::DIRECTIONAL) {
-			this->light_command.directions[i] = light->root.getGlobalMatrix().frontVector();
-			this->light_command.cos_angle_max[i] = 0.0f;
-			this->light_command.cos_angle_min[i] = 0.0f;
-		}
-		else if (light->light_type == eLightType::SPOT) {
-			this->light_command.directions[i] = light->root.getGlobalMatrix().frontVector();
-			this->light_command.cos_angle_max[i] = light->toCos(light->getCosAngleMax());
-			this->light_command.cos_angle_min[i] = light->toCos(light->getCosAngleMin());
-		}
-		else {
-			this->light_command.directions[i] = vec3(0.0f);
-			this->light_command.cos_angle_min[i] = 0.0f;
-			this->light_command.cos_angle_max[i] = 0.0f;
-		}
-		i++;
-	}
-}
-
-void Renderer::parseShadows(std::vector<Camera*> camera_light_list) {
-	this->shadow_command.num_shadows = min(MAX_NUM_LIGHTS, (int)this->camera_light_list.size());
-	int j = 0;
-	for (Camera* light_camera : camera_light_list) {
-		this->shadow_command.slots[j] = 2 + j;
-		this->shadow_command.depth_textures[j] = this->shadow_FBOs.at(j)->depth_texture;
-		this->shadow_command.view_projections[j] = light_camera->viewprojection_matrix;
-		if (this->shadow_command.biases[j] == 0.0f) {
-			this->shadow_command.biases[j] = 0.005f;
-		}
-		j++;
-	}
 }
 
 void Renderer::parseCameraLights(std::vector<SCN::LightEntity*> light_list)
 {
-	for (Camera* light_camera : this->camera_light_list) { 
-		delete light_camera;
+	for (Camera* camera : this->camera_light_list) { 
+		delete camera;
 	}
-
 	this->camera_light_list.clear();
-
 	for (LightEntity* light : light_list) {
-		Camera* light_camera = new Camera();
-
-		mat4 light_model = light->root.getGlobalMatrix();
-		vec3 light_position = light_model.getTranslation();
-		vec3 light_center = light_model * vec3(0.0f, 0.0f, -1.0f);
-		vec3 light_up = vec3(0.0f, 1.0f, 0.0f);
-
-		light_camera->lookAt(light_position, light_center, light_up);
-
-		float half_size = light->area / 2.0f;
-		float near_plane = light->near_distance;
-		float far_plane = light->max_distance;
-
-		if (light->light_type == eLightType::DIRECTIONAL) {
-			light_camera->setOrthographic(-half_size, half_size, -half_size, half_size, near_plane, far_plane);
+		Camera* camera = light->getCamera();
+		if (camera) {
+			this->camera_light_list.push_back(camera);
 		}
-		else if (light->light_type == eLightType::SPOT) {
-			light_camera->setPerspective(2.0f * light->cone_info.y, 1.0f, near_plane, far_plane);
-		}
-		else {
-			continue;
-		}
-
-		this->camera_light_list.push_back(light_camera);
 	}
 }
 
-
-// HERE =====================
-// TODO: GENERATE RENDERABLES
-// ==========================
+//generate renderables
 void Renderer::parseSceneEntities(SCN::Scene* scene, Camera* camera) 
 {
 	this->light_list.clear();
@@ -204,27 +146,25 @@ void Renderer::parseSceneEntities(SCN::Scene* scene, Camera* camera)
 			continue;
 		}
 
-		// Store Prefab Entities
+		//store prefab entities
 		if (entity->getType() == eEntityType::PREFAB) {
 			this->prefab_list.push_back((PrefabEntity*)entity);
 			continue;
 		}
 
-		// Store Lights
+		//store light entities
 		if (entity->getType() == eEntityType::LIGHT) {
 			this->light_list.push_back((LightEntity*)entity);
 		}
 	}
 
-	this->parseLights(this->light_list, scene);
 	this->parsePrefabs(this->prefab_list, camera);
 	this->parseCameraLights(this->light_list);
-	this->parseShadows(this->camera_light_list);
+	this->light_command.parseLights(this->light_list, scene);
+	this->shadow_command.parseShadows(this->camera_light_list, this->shadow_FBOs);
 }
 
-// HERE =====================
-// TODO: RENDER RENDERABLES
-// ==========================
+//render renderables 
 void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 {
 	this->scene = scene;
@@ -237,51 +177,25 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 		this->renderShadows(camera_light, shadow_fbo);
 	}
 
-	if (this->current_pipeline == RenderPipeline::DEFERRED) {
+	switch (this->current_pipeline) {
+	case RenderPipeline::FORWARD:
+		this->renderForward();
+		break;
+	case RenderPipeline::DEFERRED:
 		this->renderDeferred();
+		break;
 	}
-	else {
-		// Set the clear color (the background color)
-		glClearColor(scene->background_color.x, scene->background_color.y, scene->background_color.z, 1.0);
 
-		// Clear the color and the depth buffer
-		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-		GFX::checkGLErrors();
-
-		// Render skybox
-		if (this->skybox_cubemap) {
-			this->renderSkybox(this->skybox_cubemap);
-		}
-
-		// Render opaque entities
-		for (sDrawCommand draw_command : this->draw_command_opaque_list) {
-			this->renderMeshWithMaterial(draw_command.model,
-										 draw_command.mesh, 
-				                         draw_command.material);
-		}
-
-		glEnable(GL_BLEND);
-		glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-
-		// Render transparent entities
-		for (sDrawCommand draw_command : this->draw_command_transparent_list) {
-			this->renderMeshWithMaterial(draw_command.model,
-										 draw_command.mesh, 
-				                         draw_command.material);
-		}
-
-		glDisable(GL_BLEND);
-	}
 }
 
-// Renders the sky box of the scene
+//renders the sky box of the scene
 void Renderer::renderSkybox(GFX::Texture* cubemap) const
 {
 	Camera* camera = Camera::current;
 
-	// Apply skybox necesarry config:
-	// No blending, no dpeth test, we are always rendering the skybox
-	// Set the culling aproppiately, since we just want the back faces
+	//apply skybox necesarry config:
+	//no blending, no dpeth test, we are always rendering the skybox
+	//set the culling aproppiately, since we just want the back faces
 	glDisable(GL_BLEND);
 	glDisable(GL_DEPTH_TEST);
 	glDisable(GL_CULL_FACE);
@@ -294,12 +208,12 @@ void Renderer::renderSkybox(GFX::Texture* cubemap) const
 		return;
 	shader->enable();
 
-	// Center the skybox at the camera, with a big sphere
+	//center the skybox at the camera, with a big sphere
 	Matrix44 m;
 	m.setTranslation(camera->eye.x, camera->eye.y, camera->eye.z);
 	m.scale(10, 10, 10);
 
-	// Upload camera uniforms
+	//upload camera uniforms
 	shader->setUniform("u_viewprojection", camera->viewprojection_matrix);
 	shader->setUniform("u_camera_position", camera->eye);
 	shader->setUniform("u_texture", cubemap, 0);
@@ -309,66 +223,34 @@ void Renderer::renderSkybox(GFX::Texture* cubemap) const
 
 	shader->disable();
 
-	// Return opengl state to default
+	//return opengl state to default
 	glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 	glEnable(GL_DEPTH_TEST);
 }
 
-// Renders a mesh given its transform and material
-void Renderer::renderMeshWithMaterial(const Matrix44 model, GFX::Mesh* mesh, SCN::Material* material) const
+//renders a mesh given its transform and material
+void Renderer::renderMeshWithMaterial(DrawCommand draw_command) const
 {
-	//in case there is nothing to do
-	if (!mesh || !mesh->getNumVertices() || !material)
-		return;
-	assert(glGetError() == GL_NO_ERROR);
-
-	//define locals to simplify coding
-	GFX::Shader* shader = NULL;
 	Camera* camera = Camera::current;
+	
+	if (draw_command.check())
+		return;
 
 	glEnable(GL_DEPTH_TEST);
-
-	//choose a shader
-	shader = GFX::Shader::Get("texture");
-
 	assert(glGetError() == GL_NO_ERROR);
 
-	//no shader? then nothing to render
+	GFX::Shader* shader = GFX::Shader::Get("texture");
 	if (!shader)
 		return;
 	shader->enable();
 
-	material->bind(shader);
+	draw_command.material->bind(shader);
 
-	//upload the lights 
-	const int n = this->light_command.num_lights;
-	shader->setUniform("u_num_lights", this->light_command.num_lights);
-	shader->setUniform("u_shininess", material->shininess);
-	shader->setUniform("u_light_ambient", this->light_command.ambient);
-	shader->setUniform3Array("u_light_positions", (float*)this->light_command.positions, n);
-	shader->setUniform3Array("u_light_colors", (float*)this->light_command.colors, n);
-	shader->setUniform3Array("u_light_directions", (float*)this->light_command.directions, n);
-	shader->setUniform1Array("u_light_types", (int*)this->light_command.types, n);
-	shader->setUniform1Array("u_light_cos_angle_max", (float*)this->light_command.cos_angle_max, n);
-	shader->setUniform1Array("u_light_cos_angle_min", (float*)this->light_command.cos_angle_min, n);
-	shader->setUniform1Array("u_light_intensities", (float*)this->light_command.intensities, n);
-	
-	//upload the shadowmaps
-	const int m = this->shadow_command.num_shadows;
-	for (int j = 0; j < m; j++) {
-		glActiveTexture(GL_TEXTURE0 + this->shadow_command.slots[j]);
-		glBindTexture(GL_TEXTURE_2D, this->shadow_command.depth_textures[j]->texture_id);
-	}
-
-	shader->setUniform("u_num_shadows", this->shadow_command.num_shadows);
-	shader->setUniform1Array("u_shadow_maps", (int*)this->shadow_command.slots, m);
-	shader->setMatrix44Array("u_shadow_vps", (Matrix44*)this->shadow_command.view_projections, m);
-	shader->setUniform1Array("u_shadow_biases", (float*)this->shadow_command.biases, m);
-
-	//upload model matrix
-	shader->setUniform("u_model", model);
-
-	//upload camera uniforms
+	//upload scene properties
+	this->light_command.uploadUniforms(shader);
+	this->shadow_command.uploadUniforms(shader);
+	shader->setUniform("u_shininess", draw_command.material->shininess);
+	shader->setUniform("u_model", draw_command.model);
 	shader->setUniform("u_viewprojection", camera->viewprojection_matrix);
 	shader->setUniform("u_camera_position", camera->eye);
 
@@ -381,7 +263,7 @@ void Renderer::renderMeshWithMaterial(const Matrix44 model, GFX::Mesh* mesh, SCN
 		glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
 
 	//do the draw call that renders the mesh into the screen
-	mesh->render(GL_TRIANGLES);
+	draw_command.mesh->render(GL_TRIANGLES);
 
 	//disable shader
 	shader->disable();
@@ -391,12 +273,54 @@ void Renderer::renderMeshWithMaterial(const Matrix44 model, GFX::Mesh* mesh, SCN
 	glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 }
 
-void Renderer::renderDeferred()
+//renders the meshes from the point of view of the light camera in textures menu
+void Renderer::renderShadows(Camera* light_camera, GFX::FBO* shadow_fbo) const
 {
-	this->deferred.gbuffer_FBO->bind();
+	shadow_fbo->bind();
+	glColorMask(false, false, false, false);
+	glClear(GL_DEPTH_BUFFER_BIT);
+	
+	for (DrawCommand draw_command : this->draw_command_opaque_list) {
+		this->renderShader(light_camera, draw_command, "plain");
+	}
 
+	glColorMask(true, true, true, true);
+	shadow_fbo->unbind();
+}
+
+void Renderer::renderShader(Camera* camera, DrawCommand draw_command, const char* shader_name) const
+{
+	if (draw_command.check() || !camera)
+		return;
+
+	glEnable(GL_DEPTH_TEST);
+	assert(glGetError() == GL_NO_ERROR);
+
+	GFX::Shader* shader = GFX::Shader::Get(shader_name);
+	if (!shader)
+		return;
+	shader->enable();
+
+	draw_command.material->bind(shader);
+
+	shader->setUniform("u_model", draw_command.model);
+	shader->setUniform("u_viewprojection", camera->viewprojection_matrix);
+	shader->setUniform("u_camera_position", camera->eye);
+
+	draw_command.mesh->render(GL_TRIANGLES);
+
+	shader->disable();
+
+	glDisable(GL_BLEND);
+	glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+}
+
+void Renderer::renderForward() const
+{
 	// Set the clear color (the background color)
-	glClearColor(scene->background_color.x, scene->background_color.y, scene->background_color.z, 1.0);
+	glClearColor(scene->background_color.x,
+		scene->background_color.y,
+		scene->background_color.z, 1.0);
 
 	// Clear the color and the depth buffer
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -408,75 +332,50 @@ void Renderer::renderDeferred()
 	}
 
 	// Render opaque entities
-	for (sDrawCommand draw_command : this->draw_command_opaque_list) {
-		this->deferred.render(draw_command.model,
-						      draw_command.mesh,
-			                  draw_command.material);
+	for (DrawCommand draw_command : this->draw_command_opaque_list) {
+		this->renderMeshWithMaterial(draw_command);
+	}
+
+	glEnable(GL_BLEND);
+	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+	// Render transparent entities
+	for (DrawCommand draw_command : this->draw_command_transparent_list) {
+		this->renderMeshWithMaterial(draw_command);
+	}
+
+	glDisable(GL_BLEND);
+}
+
+void Renderer::renderDeferred() const
+{
+	this->deferred_command.gbuffer_FBO->bind();
+
+	//set the clear color (the background color)
+	glClearColor(scene->background_color.x, scene->background_color.y, scene->background_color.z, 1.0);
+
+	//clear the color and the depth buffer
+	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+	GFX::checkGLErrors();
+
+	//render skybox
+	if (this->skybox_cubemap) {
+		this->renderSkybox(this->skybox_cubemap);
+	}
+
+	//render opaque entities
+	for (DrawCommand draw_command : this->draw_command_opaque_list) {
+		this->renderShader(Camera::current, draw_command, "gbuffer_fill");
 	}
 
 	glEnable(GL_BLEND);
 	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
 	glDisable(GL_BLEND);
-	
-	this->deferred.gbuffer_FBO->unbind();
 
+	this->deferred_command.gbuffer_FBO->unbind();
 
-	this->deferred.gbuffer_FBO->color_textures[2]->toViewport();
-}
-
-//to render shadows (lab 3)
-void Renderer::renderShadows(Camera* light_camera, GFX::FBO* shadow_fbo) 
-{
-	//Create the shadow frame buffer object
-	shadow_fbo->bind();
-
-	glColorMask(false, false, false, false);
-	glClear(GL_DEPTH_BUFFER_BIT);
-
-	//Render the meshes with the point of view of the light camera
-	for (sDrawCommand& draw_command : this->draw_command_opaque_list) {
-		this->renderPlain(light_camera, 
-			              draw_command.model, 
-			              draw_command.mesh, 
-			              draw_command.material);
-	}
-
-	//Check parameters of the orthographic first!
-	glColorMask(true, true, true, true);
-
-	shadow_fbo->unbind();
-}
-
-void Renderer::renderPlain(Camera* camera, const Matrix44 model, GFX::Mesh* mesh, SCN::Material* material)
-{
-	if (!mesh || !mesh->getNumVertices() || !material || !camera)
-		return;
-	assert(glGetError() == GL_NO_ERROR);
-
-	GFX::Shader* shader = nullptr;
-	glEnable(GL_DEPTH_TEST);
-
-	shader = GFX::Shader::Get("plain");
-
-	assert(glGetError() == GL_NO_ERROR);
-
-	if (!shader)
-		return;
-	shader->enable();
-
-	material->bind(shader);
-
-	shader->setUniform("u_model", model);
-	shader->setUniform("u_viewprojection", camera->viewprojection_matrix);
-	shader->setUniform("u_camera_position", camera->eye);
-
-	mesh->render(GL_TRIANGLES);
-
-	shader->disable();
-
-	glDisable(GL_BLEND);
-	glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+	this->deferred_command.gbuffer_FBO->color_textures[2]->toViewport();
 }
 
 #ifndef SKIP_IMGUI
@@ -485,38 +384,36 @@ void Renderer::showUI()
 {
 	ImGui::Checkbox("Wireframe", &this->render_wireframe);
 	ImGui::Checkbox("Boundaries", &this->render_boundaries);
-
-	//add here your stuff
 	
-	// Shadow bias UI
+	//shadow bias UI
 	static int selected_light = 0;
-	int num_lights = (int)this->shadow_command.num_shadows;
-	if (num_lights > 0) {
+	int num_shadows = this->shadow_command.num_shadows;
+	if (num_shadows > 0) {
 		ImGui::Separator();
 		ImGui::Text("Shadow Bias Editor");
 
-		//Light selector
-		ImGui::SliderInt("Light Index", &selected_light, 0, num_lights - 1);
+		//light selector
+		ImGui::SliderInt("Shadow Index", &selected_light, 0, num_shadows - 1);
 
-		//Clamp selected_light to valid range in case lights change dynamically
-		selected_light = std::clamp(selected_light, 0, num_lights - 1);
+		//clamp selected_light to valid range in case lights change dynamically
+		selected_light = std::clamp(selected_light, 0, num_shadows - 1);
 
-		//Bias slider
+		//bias slider
 		float& bias = this->shadow_command.biases[selected_light];
 		ImGui::SliderFloat("Bias", &bias, 0.0001f, 0.1f, "%.5f");
 	}
 
-	//Render mode UI
-	static int selected_mode = 0;
+	//render mode UI
+	static int selected_mode = (int)this->current_pipeline;
 	ImGui::Separator();
-	ImGui::Text("Render Mode Selector");
+	ImGui::Text("Render Mode Selector\n(0 forward, 1 deferred)");
 	ImGui::SliderInt("Mode Index", &selected_mode, 0, 1);
 
 	if (selected_mode == 0) {
-		current_pipeline = RenderPipeline::FORWARD;
+		this->current_pipeline = RenderPipeline::FORWARD;
 	}
 	else {
-		current_pipeline = RenderPipeline::DEFERRED;
+		this->current_pipeline = RenderPipeline::DEFERRED;
 	}
 }
 

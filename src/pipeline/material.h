@@ -6,8 +6,8 @@
 #include <string>
 
 //forward declaration
-namespace GFX
-{
+namespace GFX {
+
 	class Mesh;
 	class Texture;
 	class Shader;
@@ -41,7 +41,8 @@ namespace SCN {
 	extern const char* texture_channel_str[];
 
 	//this class contains all info relevant of how something must be rendered
-	class Material {
+	class Material 
+	{
 	public:
 
 		//static manager to reuse materials

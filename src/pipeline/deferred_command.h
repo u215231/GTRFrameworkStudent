@@ -1,9 +1,6 @@
 #pragma once
 
 #include "scene.h"
-#include "prefab.h"
-#include "light.h"
-#include "camera.h"
 
 namespace GFX {
 	class FBO;
@@ -14,17 +11,17 @@ namespace SCN {
 	class Material;
 }
 
-class Deferred {
+class DeferredCommand {
 public:
-	GFX::FBO* gbuffer_FBO = nullptr;
+	int max_textures;
+	GFX::FBO* gbuffer_FBO;
 
-	Deferred() = default;
-	~Deferred();
+	DeferredCommand();
+	~DeferredCommand();
 
 	void initGBuffer(int width, int height);
 	void resize(int width, int height);
 	void bindGBuffer();
 	void unbindGBuffer();
-	void render(const Matrix44 model, GFX::Mesh* mesh, SCN::Material* material) const;
 };
 

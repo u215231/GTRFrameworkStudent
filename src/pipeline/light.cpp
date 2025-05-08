@@ -53,13 +53,41 @@ void SCN::LightEntity::serialize(cJSON* json)
 	}
 	if (light_type == eLightType::DIRECTIONAL)
 		writeJSONNumber(json, "area", area);
-
 	if (light_type == eLightType::POINT)
 		writeJSONString(json, "light_type", "POINT");
 	if (light_type == eLightType::SPOT)
 		writeJSONString(json, "light_type", "SPOT");
 	if (light_type == eLightType::DIRECTIONAL)
 		writeJSONString(json, "light_type", "DIRECTIONAL");
+}
+
+Camera* SCN::LightEntity::getCamera()
+{
+	if (this->light_type == SCN::eLightType::POINT
+		or this->light_type == SCN::eLightType::NO_LIGHT) {
+		return nullptr;
+	}
+
+	Camera* camera = new Camera();
+	
+	mat4 light_model = this->root.getGlobalMatrix();
+	vec3 light_position = light_model.getTranslation();
+	vec3 light_center = light_model * vec3(0.0f, 0.0f, -1.0f);
+	vec3 light_up = vec3(0.0f, 1.0f, 0.0f);
+
+	camera->lookAt(light_position, light_center, light_up);
+
+	float half_size = this->area / 2.0f;
+	float near_plane = this->near_distance;
+	float far_plane = this->max_distance;
+
+	if (this->light_type == SCN::eLightType::DIRECTIONAL) {
+		camera->setOrthographic(-half_size, half_size, -half_size, half_size, near_plane, far_plane);
+	}
+	if (this->light_type == SCN::eLightType::SPOT) {
+		camera->setPerspective(2.0f * this->cone_info.y, 1.0f, near_plane, far_plane);
+	}
+	return camera;
 }
 
 

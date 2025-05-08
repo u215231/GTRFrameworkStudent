@@ -40,6 +40,8 @@ namespace SCN {
 
 		void configure(cJSON* json);
 		void serialize(cJSON* json);
+
+		Camera* getCamera();
 	};
 
 };

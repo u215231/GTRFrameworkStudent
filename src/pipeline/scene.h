@@ -7,6 +7,7 @@
 #include "animation.h"
 #include "prefab.h"
 
+#define MAX_NUM_LIGHTS 10
 
 //forward declaration
 class cJSON; 
