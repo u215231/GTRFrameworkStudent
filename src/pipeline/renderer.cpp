@@ -14,7 +14,6 @@
 #include "../utils/utils.h"
 #include "../extra/hdre.h"
 #include "../core/ui.h"
-#include "../pipeline/deferred.h"
 
 #include "scene.h"
 
@@ -26,7 +25,6 @@ GFX::Mesh sphere;
 
 Renderer::Renderer(const char* shader_atlas_filename)
 {
-	this->current_pipeline = RenderPipeline::DEFERRED;
 	this->render_wireframe = false;
 	this->render_boundaries = false;
 	this->scene = nullptr;
@@ -45,7 +43,9 @@ Renderer::Renderer(const char* shader_atlas_filename)
 	sphere.createSphere(1.0f);
 	sphere.uploadToVRAM();
 
-	this->deferred_command.initGBuffer(1024, 768);
+	this->current_pipeline = RenderPipeline::DEFERRED;
+	this->current_gbuffer = GbufferType::ALBEDO_MAP;
+	this->deferred_command.init(1024, 768);
 }
 
 Renderer::~Renderer()
@@ -317,21 +317,22 @@ void Renderer::renderShader(Camera* camera, DrawCommand draw_command, const char
 
 void Renderer::renderForward() const
 {
-	// Set the clear color (the background color)
+	//set the clear color (the background color)
 	glClearColor(scene->background_color.x,
-		scene->background_color.y,
-		scene->background_color.z, 1.0);
+		         scene->background_color.y,
+		         scene->background_color.z, 
+		         1.0);
 
-	// Clear the color and the depth buffer
+	//clear the color and the depth buffer
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 	GFX::checkGLErrors();
 
-	// Render skybox
+	//render skybox
 	if (this->skybox_cubemap) {
 		this->renderSkybox(this->skybox_cubemap);
 	}
 
-	// Render opaque entities
+	//render opaque entities
 	for (DrawCommand draw_command : this->draw_command_opaque_list) {
 		this->renderMeshWithMaterial(draw_command);
 	}
@@ -347,12 +348,15 @@ void Renderer::renderForward() const
 	glDisable(GL_BLEND);
 }
 
-void Renderer::renderDeferred() const
+void Renderer::renderDeferred()
 {
-	this->deferred_command.gbuffer_FBO->bind();
+	this->deferred_command.bind();
 
 	//set the clear color (the background color)
-	glClearColor(scene->background_color.x, scene->background_color.y, scene->background_color.z, 1.0);
+	glClearColor(scene->background_color.x,
+				 scene->background_color.y,
+				 scene->background_color.z,
+				 1.0);
 
 	//clear the color and the depth buffer
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -373,9 +377,9 @@ void Renderer::renderDeferred() const
 
 	glDisable(GL_BLEND);
 
-	this->deferred_command.gbuffer_FBO->unbind();
+	this->deferred_command.unbind();
 
-	this->deferred_command.gbuffer_FBO->color_textures[2]->toViewport();
+	this->deferred_command.view(this->current_gbuffer);
 }
 
 #ifndef SKIP_IMGUI
@@ -407,13 +411,17 @@ void Renderer::showUI()
 	static int selected_mode = (int)this->current_pipeline;
 	ImGui::Separator();
 	ImGui::Text("Render Mode Selector\n(0 forward, 1 deferred)");
-	ImGui::SliderInt("Mode Index", &selected_mode, 0, 1);
+	ImGui::SliderInt("Mode", &selected_mode, 0, 1);
+	this->current_pipeline = (RenderPipeline)selected_mode;
 
-	if (selected_mode == 0) {
-		this->current_pipeline = RenderPipeline::FORWARD;
-	}
-	else {
-		this->current_pipeline = RenderPipeline::DEFERRED;
+	//select deferred texture
+	if ((RenderPipeline)selected_mode == RenderPipeline::DEFERRED) {
+		static int deferred_texture = (int)this->current_gbuffer;
+		int num_textures = this->deferred_command.max_textures;
+		ImGui::Separator();
+		ImGui::Text("Deferred Texture Selector\n");
+		ImGui::SliderInt("Texture", &deferred_texture, 0, num_textures - 1);
+		this->current_gbuffer = (GbufferType)deferred_texture;
 	}
 }
 

@@ -22,13 +22,13 @@ DeferredCommand::~DeferredCommand()
 	}
 }
 
-void DeferredCommand::initGBuffer(int width, int height) 
+void DeferredCommand::init(int width, int height) 
 {
 	if (gbuffer_FBO) {
 		delete gbuffer_FBO;
 	}
 	gbuffer_FBO = new GFX::FBO();
-	int n = this->max_textures;
+	int n = max_textures;
 	bool status = gbuffer_FBO->create(width, height, n, GL_RGBA, GL_UNSIGNED_BYTE, true);
 	if (!status) {
 		printf("Error: Failed to create G-buffer FBO.\n");
@@ -40,21 +40,27 @@ void DeferredCommand::resize(int width, int height)
 	if (!gbuffer_FBO) {
 		return;
 	}
-	int n = this->max_textures;
+	int n = max_textures;
 	bool status = gbuffer_FBO->create(width, height, n, GL_RGBA16F, GL_FLOAT, true);
 	if (!status) {
 		printf("Error: Failed to resize G-buffer FBO.\n");
 	}
 }
 
-void DeferredCommand::bindGBuffer() 
+void DeferredCommand::bind() 
 {
 	if (gbuffer_FBO)
 		gbuffer_FBO->bind();
 }
 
-void DeferredCommand::unbindGBuffer() 
+void DeferredCommand::unbind() 
 {
 	if (gbuffer_FBO)
 		gbuffer_FBO->unbind();
+}
+
+void DeferredCommand::view(GbufferType type)
+{
+	if (gbuffer_FBO)
+		gbuffer_FBO->color_textures[(int)type]->toViewport();
 }

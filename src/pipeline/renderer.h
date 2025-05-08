@@ -51,6 +51,7 @@ namespace SCN {
 		ShadowCommand shadow_command; // lab3
 
 		RenderPipeline current_pipeline; //lab4
+		GbufferType current_gbuffer; //lab4
 		DeferredCommand deferred_command; //lab4
 		
 		//updated every frames
@@ -73,7 +74,7 @@ namespace SCN {
 		void renderShadows(Camera* light_camera, GFX::FBO* shadow_fbo) const;
 		void renderShader(Camera* camera, DrawCommand draw_command, const char* shader_name) const;
 		void renderForward() const;
-		void renderDeferred() const;
+		void renderDeferred();
 
 		//to show user interface
 		void showUI();
