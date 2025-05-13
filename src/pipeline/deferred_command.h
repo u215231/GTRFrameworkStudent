@@ -5,6 +5,7 @@
 namespace GFX {
 	class FBO;
 	class Mesh;
+	class Texture;
 }
 
 namespace SCN {
@@ -21,6 +22,7 @@ class DeferredCommand {
 public:
 	int max_textures;
 	GFX::FBO* gbuffer_FBO;
+	GFX::FBO* depth_FBO;
 
 	DeferredCommand();
 	~DeferredCommand();
@@ -31,5 +33,6 @@ public:
 	void bind();
 	void unbind();
 	void view(GbufferType type);
+	void uploadUniforms(GFX::Shader* shader, GbufferType type) const;
 };
 

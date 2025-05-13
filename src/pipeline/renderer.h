@@ -71,7 +71,7 @@ namespace SCN {
 		void renderScene(SCN::Scene* scene, Camera* camera);
 		void renderSkybox(GFX::Texture* cubemap) const;
 		void renderMeshWithMaterial(DrawCommand draw_command) const;
-		void renderShadows(Camera* light_camera, GFX::FBO* shadow_fbo) const;
+		void renderShadow(Camera* light_camera, GFX::FBO* shadow_fbo) const;
 		void renderShader(Camera* camera, DrawCommand draw_command, const char* shader_name) const;
 		void renderForward() const;
 		void renderDeferred();

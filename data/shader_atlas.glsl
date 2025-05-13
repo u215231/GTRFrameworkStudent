@@ -1,6 +1,7 @@
 //example of some shaders compiled
 flat basic.vs flat.fs
 texture basic.vs texture.fs
+texture_original basic.vs texture_original.fs
 skybox basic.vs skybox.fs
 depth quad.vs depth.fs
 multi basic.vs multi.fs
@@ -116,10 +117,10 @@ uniform vec3 u_light_directions[10];		// Spotlight direction (D)
 uniform float u_light_cos_angle_max[10];	// cos(alpha_max)
 uniform float u_light_cos_angle_min[10];	// cos(alpha_min)
 
-uniform int u_num_shadows;
-uniform sampler2D u_shadow_maps[10];          
-uniform mat4 u_shadow_vps[10];               
-uniform float u_shadow_biases[10];             
+uniform int u_num_shadows;                  // Number of shadows
+uniform sampler2D u_shadow_maps[10];        // Number shadow map textures 
+uniform mat4 u_shadow_vps[10];              // View projections from the point of view of lights
+uniform float u_shadow_biases[10];          // Shadow biases
 
 out vec4 FragColor;
 
@@ -139,6 +140,7 @@ float computeShadow(int shadow_num) {
     float current_depth = proj_coords.z;
     return shadow_closest_depth < (current_depth - u_shadow_biases[shadow_num]) ? 0.0 : 1.0;
 }
+
 void main()
 {
 	vec2 uv = v_uv;
@@ -369,24 +371,39 @@ uniform vec3 u_camera_position;
 
 layout(location = 0) out vec4 gbuffer_albedo;
 layout(location = 1) out vec4 gbuffer_normal_map;
-layout(location = 2) out vec4 gbuffer_depth_map;
+layout(location = 2) out vec4 gbuffer_position_map;
 
 void main()
 {
 	vec2 uv = v_uv;
 	vec4 color = u_color;
-	
 	color *= texture( u_texture, uv );
+	
 	gbuffer_albedo = color;
-	
 	gbuffer_normal_map = vec4((1 + normalize(v_normal))/2, 1.0);
+	gbuffer_position_map = vec4(v_world_position, 1.0);
+}
 
-	
-	float depth = texture(u_texture, uv).r;
-	float depth_clip = depth * 2.0 - 1.0;
-	vec2 uv_clip = uv * 2.0 - 1.0;
-	vec4 clip_coords = vec4(uv_clip.x, uv_clip.y, depth_clip, 1.0);
-	vec4 not_norm_world_pos = u_viewprojection * clip_coords;
-	vec3 world_pos = not_norm_world_pos.xyz / not_norm_world_pos.w;
-	gbuffer_depth_map = vec4(world_pos, 1.0);
+\texture_original.fs
+
+#version 330 core
+
+in vec2 v_uv;
+
+uniform vec4 u_color;
+uniform sampler2D u_texture;
+uniform float u_alpha_cutoff;
+
+out vec4 FragColor;
+
+void main()
+{
+	vec2 uv = v_uv;
+	vec4 color = u_color;
+	color *= texture( u_texture, v_uv );
+
+	if(color.a < u_alpha_cutoff)
+		discard;
+
+	FragColor = color;
 }

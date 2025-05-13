@@ -12,6 +12,8 @@ DeferredCommand::DeferredCommand()
 {
 	this->max_textures = 3;
 	this->gbuffer_FBO = nullptr;
+	this->depth_FBO = new GFX::FBO();
+	this->depth_FBO->setDepthOnly(1024, 768);
 }
 
 DeferredCommand::~DeferredCommand() 
@@ -63,4 +65,9 @@ void DeferredCommand::view(GbufferType type)
 {
 	if (gbuffer_FBO)
 		gbuffer_FBO->color_textures[(int)type]->toViewport();
+}
+
+void DeferredCommand::uploadUniforms(GFX::Shader* shader, GbufferType type) const
+{
+	shader->setUniform("u_texture", gbuffer_FBO->color_textures[(int)type], 0);
 }

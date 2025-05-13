@@ -171,14 +171,14 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 	this->setupScene();
 	this->parseSceneEntities(scene, camera);
 
-	for (int i = 0; i < this->camera_light_list.size(); i++) {
-		Camera* camera_light = this->camera_light_list.at(i);
-		GFX::FBO* shadow_fbo = this->shadow_FBOs.at(i);
-		this->renderShadows(camera_light, shadow_fbo);
-	}
-
 	switch (this->current_pipeline) {
 	case RenderPipeline::FORWARD:
+		for (int i = 0; i < (int)this->camera_light_list.size(); i++) {
+			Camera* camera_light = this->camera_light_list.at(i);
+			GFX::FBO* shadow_fbo = this->shadow_FBOs.at(i);
+			this->renderShadow(camera_light, shadow_fbo);
+		}
+		this->renderShadow(Camera::current, this->shadow_FBOs.at((int)this->camera_light_list.size()));
 		this->renderForward();
 		break;
 	case RenderPipeline::DEFERRED:
@@ -274,7 +274,7 @@ void Renderer::renderMeshWithMaterial(DrawCommand draw_command) const
 }
 
 //renders the meshes from the point of view of the light camera in textures menu
-void Renderer::renderShadows(Camera* light_camera, GFX::FBO* shadow_fbo) const
+void Renderer::renderShadow(Camera* light_camera, GFX::FBO* shadow_fbo) const
 {
 	shadow_fbo->bind();
 	glColorMask(false, false, false, false);
@@ -374,11 +374,11 @@ void Renderer::renderDeferred()
 
 	glEnable(GL_BLEND);
 	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-
 	glDisable(GL_BLEND);
 
 	this->deferred_command.unbind();
 
+	//see the deferred textures by screen
 	this->deferred_command.view(this->current_gbuffer);
 }
 
