@@ -501,7 +501,7 @@ void main()
 		specular_component += light_color * pow(R_dot_V, shininess);
 	}
 
-	vec3 color = albedo * (0*ambient_component + diffuse_component + 0*specular_component);
+	vec3 color = albedo * (ambient_component + diffuse_component + specular_component);
 
     FragColor = vec4(color, 1.0);
 }

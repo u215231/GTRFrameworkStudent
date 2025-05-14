@@ -185,8 +185,6 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 		this->renderForward();
 		break;
 	case RenderPipeline::DEFERRED:
-		//Vector2 window_size = CORE::getWindowSize();
-		//this->deferred_command.resize(window_size.x, window_size.y);
 		this->renderDeferred();
 		this->renderDeferredLightingPass();
 		break;
@@ -404,7 +402,8 @@ void Renderer::renderDeferredLightingPass() const {
 	this->light_command.uploadUniforms(shader);
 	this->shadow_command.uploadUniforms(shader);
 	shader->setUniform("u_camera_position", camera->eye);
-	shader->setUniform("u_res_inv", vec2(1.0f / 1024, 1.0f / 768));
+	Vector2 window_size = CORE::getWindowSize();
+	shader->setUniform("u_res_inv", vec2(1.0f / window_size.x, 1.0f / window_size.y));
 
 	Matrix44 inv_vp_mat = camera->viewprojection_matrix;
 	inv_vp_mat.inverse();
@@ -458,14 +457,14 @@ void Renderer::showUI()
 	this->current_pipeline = (RenderPipeline)selected_mode;
 
 	//select deferred texture
-	if ((RenderPipeline)selected_mode == RenderPipeline::DEFERRED) {
+	/*if ((RenderPipeline)selected_mode == RenderPipeline::DEFERRED) {
 		static int deferred_texture = (int)this->current_gbuffer;
 		int num_textures = this->deferred_command.max_textures;
 		ImGui::Separator();
 		ImGui::Text("Deferred Texture Selector\n");
 		ImGui::SliderInt("Texture", &deferred_texture, 0, num_textures - 1);
 		this->current_gbuffer = (GbufferType)deferred_texture;
-	}
+	}*/
 }
 
 #else
