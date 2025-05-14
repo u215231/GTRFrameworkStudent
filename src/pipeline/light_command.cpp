@@ -19,6 +19,7 @@ LightCommand::~LightCommand()
 void LightCommand::parseLights(std::vector<SCN::LightEntity*> light_list, SCN::Scene* scene)
 {
 	this->num_lights = min(MAX_NUM_LIGHTS, (int)light_list.size());
+	this->ambient = scene->ambient_light;
 	int i = 0;
 	for (SCN::LightEntity* light : light_list) {
 		this->positions[i] = light->root.getGlobalMatrix().getTranslation();

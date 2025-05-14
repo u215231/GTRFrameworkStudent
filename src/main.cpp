@@ -36,7 +36,7 @@ int main(int argc, char **argv)
 		size = CORE::getDesktopSize(0);
 
 	//create the application window 
-	CORE::Window* window = CORE::createWindow("GTR", (int)size.x, (int)size.y, fullscreen );
+	CORE::Window* window = CORE::createWindow("GTR", (int)size.x, (int)size.y, fullscreen);
 	if (!window)
 		return 0;
 
@@ -44,7 +44,7 @@ int main(int argc, char **argv)
 	app = new Application();
 
 	//main loop, application gets inside here till user closes it
-	CORE::mainLoop(window,app);
+	CORE::mainLoop(window, app);
 
 	//save state and free memory
 	CORE::destroy();

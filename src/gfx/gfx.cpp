@@ -37,7 +37,13 @@ namespace GFX {
 			nCurAvailMemoryInKB = 0;
 		}
 
-		std::string str = "FPS: " + std::to_string(CORE::BaseApplication::instance->fps) + " Time: " + std::to_string(gpu_frame_microseconds) + "us DCS: " + std::to_string(Mesh::num_meshes_rendered) + " Tris: " + std::to_string(long(Mesh::num_triangles_rendered * 0.001)) + "Ks  VRAM: " + std::to_string(int((nTotalMemoryInKB - nCurAvailMemoryInKB) * 0.001)) + "MBs / " + std::to_string(int(nTotalMemoryInKB * 0.001)) + "MBs";
+		std::string str = "FPS: " 
+			+ std::to_string(CORE::BaseApplication::instance->fps) + " Time: " 
+			+ std::to_string(gpu_frame_microseconds) + "us DCS: " 
+			+ std::to_string(Mesh::num_meshes_rendered) + " Tris: " 
+			+ std::to_string(long(Mesh::num_triangles_rendered * 0.001)) + "Ks  VRAM: " 
+			+ std::to_string(int((nTotalMemoryInKB - nCurAvailMemoryInKB) * 0.001)) 
+			+ "MBs / " + std::to_string(int(nTotalMemoryInKB * 0.001)) + "MBs";
 		Mesh::num_meshes_rendered = 0;
 		Mesh::num_triangles_rendered = 0;
 		return str;

@@ -10,10 +10,10 @@
 
 DeferredCommand::DeferredCommand()
 {
+	this->width = 0;
+	this->height = 0;
 	this->max_textures = 3;
 	this->gbuffer_FBO = nullptr;
-	this->depth_FBO = new GFX::FBO();
-	this->depth_FBO->setDepthOnly(1024, 768);
 }
 
 DeferredCommand::~DeferredCommand() 
@@ -29,21 +29,24 @@ void DeferredCommand::init(int width, int height)
 	if (gbuffer_FBO) {
 		delete gbuffer_FBO;
 	}
-	gbuffer_FBO = new GFX::FBO();
-	int n = max_textures;
-	bool status = gbuffer_FBO->create(width, height, n, GL_RGBA, GL_UNSIGNED_BYTE, true);
+	this->width = width;
+	this->height = height;
+	this->gbuffer_FBO = new GFX::FBO();
+	bool status = this->gbuffer_FBO->create(width, height, max_textures, GL_RGBA, GL_UNSIGNED_BYTE, true);
 	if (!status) {
 		printf("Error: Failed to create G-buffer FBO.\n");
 	}
 }
 
+// NOT WORKS: fails when setting a new width and height in create method
 void DeferredCommand::resize(int width, int height) 
 {
-	if (!gbuffer_FBO) {
+	if (!gbuffer_FBO or (this->width == width and this->height == height)) {
 		return;
 	}
-	int n = max_textures;
-	bool status = gbuffer_FBO->create(width, height, n, GL_RGBA16F, GL_FLOAT, true);
+	this->width = width;
+	this->height = height;
+	bool status = this->gbuffer_FBO->create(width, height, max_textures, GL_RGBA16F, GL_FLOAT, true);
 	if (!status) {
 		printf("Error: Failed to resize G-buffer FBO.\n");
 	}

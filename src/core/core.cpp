@@ -178,9 +178,9 @@ void CORE::mainLoop(CORE::Window* window, BaseApplication* app)
 		////////////////////////
 		//render frame
 		GFX::startGPULabel("Frame");
-			GFX::checkGLErrors();
-			app->render();
-			GFX::checkGLErrors();
+		GFX::checkGLErrors();
+		app->render();
+		GFX::checkGLErrors();
 		GFX::endGPULabel();
 		////////////////////////
 
@@ -208,8 +208,12 @@ void CORE::mainLoop(CORE::Window* window, BaseApplication* app)
 			
 			switch (sdlEvent.type)
 			{
-			case SDL_EVENT_QUIT: return; break; //EVENT for when the user clicks the [x] in the corner
-			case SDL_EVENT_MOUSE_BUTTON_DOWN: //EXAMPLE OF sync mouse input
+			case SDL_EVENT_QUIT: 
+				//EVENT for when the user clicks the [x] in the corner
+				return; 
+				break;
+			case SDL_EVENT_MOUSE_BUTTON_DOWN: 
+				//EXAMPLE OF sync mouse input
 				Input::mouse_state |= SDL_BUTTON(sdlEvent.button.button);
 				if(!ui_mouse_want_capture)
 					app->onMouseButtonDown(sdlEvent.button);
@@ -241,7 +245,8 @@ void CORE::mainLoop(CORE::Window* window, BaseApplication* app)
 			case SDL_EVENT_TEXT_INPUT:
 				// you can read the ASCII character from sdlEvent.text.text 
 				break;
-			case SDL_EVENT_WINDOW_RESIZED: //resize opengl context
+			case SDL_EVENT_WINDOW_RESIZED: 
+				//resize opengl context
 				app->onResize(sdlEvent.window.data1, sdlEvent.window.data2);
 				break;
 			case SDL_EVENT_DROP_FILE:

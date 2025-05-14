@@ -15,6 +15,7 @@
 #include "../extra/hdre.h"
 #include "../core/ui.h"
 
+
 #include "scene.h"
 
 using namespace SCN;
@@ -25,6 +26,9 @@ GFX::Mesh sphere;
 
 Renderer::Renderer(const char* shader_atlas_filename)
 {
+	Vector2 window_size = CORE::getWindowSize();
+	unsigned int max_size = max(window_size.x, window_size.y);
+
 	this->render_wireframe = false;
 	this->render_boundaries = false;
 	this->scene = nullptr;
@@ -32,7 +36,7 @@ Renderer::Renderer(const char* shader_atlas_filename)
 
 	for (int i = 0; i < MAX_NUM_LIGHTS; i++) {
 		GFX::FBO* shadow_FBO = new GFX::FBO();
-		shadow_FBO->setDepthOnly(1024, 1024);
+		shadow_FBO->setDepthOnly(max_size, max_size);
 		this->shadow_FBOs.push_back(shadow_FBO);
 	}
 
@@ -45,7 +49,7 @@ Renderer::Renderer(const char* shader_atlas_filename)
 
 	this->current_pipeline = RenderPipeline::DEFERRED;
 	this->current_gbuffer = GbufferType::ALBEDO_MAP;
-	this->deferred_command.init(1024, 768);
+	this->deferred_command.init(2 * window_size.x, 2 * window_size.y); // 1024, 768 default
 }
 
 Renderer::~Renderer()
@@ -79,9 +83,9 @@ void Renderer::parseNode(Node* node, Camera* cam)
 	}
 
 	if (node->mesh) {
-		DrawCommand draw = DrawCommand(node->mesh, 
-			             node->material, 
-			             node->getGlobalMatrix());
+		DrawCommand draw = DrawCommand(node->mesh,
+			node->material,
+			node->getGlobalMatrix());
 		if (node->material->alpha_mode == NO_ALPHA) {
 			this->draw_command_opaque_list.push_back(draw);
 		}
@@ -123,7 +127,7 @@ void Renderer::parsePrefabs(std::vector<PrefabEntity*> prefab_list, Camera* came
 
 void Renderer::parseCameraLights(std::vector<SCN::LightEntity*> light_list)
 {
-	for (Camera* camera : this->camera_light_list) { 
+	for (Camera* camera : this->camera_light_list) {
 		delete camera;
 	}
 	this->camera_light_list.clear();
@@ -136,7 +140,7 @@ void Renderer::parseCameraLights(std::vector<SCN::LightEntity*> light_list)
 }
 
 //generate renderables
-void Renderer::parseSceneEntities(SCN::Scene* scene, Camera* camera) 
+void Renderer::parseSceneEntities(SCN::Scene* scene, Camera* camera)
 {
 	this->light_list.clear();
 	this->prefab_list.clear();
@@ -178,11 +182,13 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 			GFX::FBO* shadow_fbo = this->shadow_FBOs.at(i);
 			this->renderShadow(camera_light, shadow_fbo);
 		}
-		this->renderShadow(Camera::current, this->shadow_FBOs.at((int)this->camera_light_list.size()));
 		this->renderForward();
 		break;
 	case RenderPipeline::DEFERRED:
+		//Vector2 window_size = CORE::getWindowSize();
+		//this->deferred_command.resize(window_size.x, window_size.y);
 		this->renderDeferred();
+		this->renderDeferredLightingPass();
 		break;
 	}
 
@@ -232,7 +238,7 @@ void Renderer::renderSkybox(GFX::Texture* cubemap) const
 void Renderer::renderMeshWithMaterial(DrawCommand draw_command) const
 {
 	Camera* camera = Camera::current;
-	
+
 	if (draw_command.check())
 		return;
 
@@ -319,9 +325,9 @@ void Renderer::renderForward() const
 {
 	//set the clear color (the background color)
 	glClearColor(scene->background_color.x,
-		         scene->background_color.y,
-		         scene->background_color.z, 
-		         1.0);
+		scene->background_color.y,
+		scene->background_color.z,
+		1.0);
 
 	//clear the color and the depth buffer
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -354,9 +360,9 @@ void Renderer::renderDeferred()
 
 	//set the clear color (the background color)
 	glClearColor(scene->background_color.x,
-				 scene->background_color.y,
-				 scene->background_color.z,
-				 1.0);
+		scene->background_color.y,
+		scene->background_color.z,
+		1.0);
 
 	//clear the color and the depth buffer
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -378,8 +384,45 @@ void Renderer::renderDeferred()
 
 	this->deferred_command.unbind();
 
-	//see the deferred textures by screen
-	this->deferred_command.view(this->current_gbuffer);
+	//this->deferred_command.view(this->current_gbuffer);
+}
+
+void Renderer::renderDeferredLightingPass() const {
+
+	Camera* camera = Camera::current;
+
+
+	// 2. Get the full-screen quad mesh
+	GFX::Mesh* quad = GFX::Mesh::getQuad();
+
+	// 3. Enable the lighting shader
+	GFX::Shader* shader = GFX::Shader::Get("deferred_light_pass");
+	if (!shader) return;
+	shader->enable();
+
+	// 4. Send light uniforms
+	this->light_command.uploadUniforms(shader);
+	this->shadow_command.uploadUniforms(shader);
+	shader->setUniform("u_camera_position", camera->eye);
+	shader->setUniform("u_res_inv", vec2(1.0f / 1024, 1.0f / 768));
+
+	Matrix44 inv_vp_mat = camera->viewprojection_matrix;
+	inv_vp_mat.inverse();
+	shader->setUniform("u_inv_vp_mat", inv_vp_mat);
+
+	// 5. Bind G-buffer textures
+	GFX::FBO* fbo = this->deferred_command.gbuffer_FBO;
+	int texture_slot = 0;
+	shader->setTexture("u_gbuffer_color", fbo->color_textures[0], texture_slot++);
+	shader->setTexture("u_gbuffer_normal", fbo->color_textures[1], texture_slot++);
+	shader->setTexture("u_gbuffer_position", fbo->color_textures[2], texture_slot++);
+	shader->setTexture("u_gbuffer_depth", fbo->depth_texture, texture_slot++);
+
+	// 6. Render the full-screen quad
+	quad->render(GL_TRIANGLES);
+
+	// 7. Disable the shader
+	shader->disable();
 }
 
 #ifndef SKIP_IMGUI

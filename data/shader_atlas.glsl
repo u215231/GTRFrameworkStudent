@@ -1,13 +1,13 @@
 //example of some shaders compiled
 flat basic.vs flat.fs
 texture basic.vs texture.fs
-texture_original basic.vs texture_original.fs
 skybox basic.vs skybox.fs
 depth quad.vs depth.fs
 multi basic.vs multi.fs
 compute test.cs
 plain basic.vs plain.fs
 gbuffer_fill basic.vs gbuffer_fill.fs
+deferred_light_pass quad.vs deferred_light_pass.fs
 
 \test.cs
 #version 430 core
@@ -124,8 +124,8 @@ uniform float u_shadow_biases[10];          // Shadow biases
 
 out vec4 FragColor;
 
-
-float computeShadow(int shadow_num) {                    
+float computeShadow(int shadow_num) 
+{                    
     vec4 light_space_pos = u_shadow_vps[shadow_num] * vec4(v_world_position, 1.0);
     vec3 proj_coords = light_space_pos.xyz / light_space_pos.w;
     proj_coords = (proj_coords + 1) / 2;
@@ -162,13 +162,13 @@ void main()
 
 		if (u_light_types[i] == 0)
 		{
-			//NO LIGHT
+			// No light
 			continue;
 		}
 
 		if (u_light_types[i] == 1)
 		{	
-			//POINT
+			// Point light
 			light_position = u_light_positions[i] - v_world_position;
 			float distance = length(light_position);
 			attenuation = 1.0 / max(pow(distance, 2), 0.00001);
@@ -176,7 +176,7 @@ void main()
 
 		if (u_light_types[i] == 2)
 		{  
-			//SPOTLIGHT
+			// Spoth light
 			light_position = u_light_positions[i] - v_world_position;
 			float distance = length(light_position);
 			attenuation = 1.0 / max(pow(distance, 2), 0.00001);
@@ -200,7 +200,7 @@ void main()
 
 		if (u_light_types[i] == 3)
 		{	 
-			//DIRECTIONAL
+			// Directional light
 			light_position = u_light_positions[i];
 			attenuation = 1.0;
 			shadow = computeShadow(shadow_num);
@@ -384,26 +384,124 @@ void main()
 	gbuffer_position_map = vec4(v_world_position, 1.0);
 }
 
-\texture_original.fs
+\deferred_light_pass.fs
 
 #version 330 core
 
 in vec2 v_uv;
-
-uniform vec4 u_color;
-uniform sampler2D u_texture;
-uniform float u_alpha_cutoff;
-
 out vec4 FragColor;
 
-void main()
+// G-buffers
+uniform sampler2D u_gbuffer_color;
+uniform sampler2D u_gbuffer_normal;
+uniform sampler2D u_gbuffer_position;
+uniform sampler2D u_gbuffer_depth;
+
+// View
+uniform mat4 u_inv_vp_mat;
+uniform vec3 u_camera_position;
+uniform vec2 u_res_inv;
+
+// Lighting
+#define MAX_NUM_LIGHTS 10
+uniform int u_num_lights;
+uniform vec3 u_light_ambient;
+uniform vec3 u_light_positions[MAX_NUM_LIGHTS];
+uniform vec3 u_light_colors[MAX_NUM_LIGHTS];
+uniform vec3 u_light_directions[MAX_NUM_LIGHTS];
+uniform float u_light_intensities[MAX_NUM_LIGHTS];
+uniform int u_light_types[MAX_NUM_LIGHTS]; 
+uniform float u_light_cos_angle_max[MAX_NUM_LIGHTS];
+uniform float u_light_cos_angle_min[MAX_NUM_LIGHTS];
+
+const float shininess = 10.0;
+
+// Shading
+#define MAX_NUM_SHADOWS 10
+uniform int u_num_shadows;
+uniform sampler2D u_shadow_maps[MAX_NUM_SHADOWS];
+uniform mat4 u_shadow_vps[MAX_NUM_SHADOWS];
+uniform float u_shadow_biases[MAX_NUM_SHADOWS];
+
+
+void main() 
 {
-	vec2 uv = v_uv;
-	vec4 color = u_color;
-	color *= texture( u_texture, v_uv );
+    vec2 uv = gl_FragCoord.xy * u_res_inv;
 
-	if(color.a < u_alpha_cutoff)
-		discard;
+    vec3 albedo = texture(u_gbuffer_color, uv).rgb;
+    vec3 normal = texture(u_gbuffer_normal, uv).xyz;
+	vec3 world_position = texture(u_gbuffer_position, uv).xyz;
+    float depth = texture(u_gbuffer_depth, uv).r;
+    
+	vec3 ambient_component = u_light_ambient;
+	vec3 diffuse_component = vec3(0.0);
+	vec3 specular_component = vec3(0.0);
 
-	FragColor = color;
+	for (int i = 0; i < u_num_lights && i < MAX_NUM_LIGHTS; ++i) 
+	{
+		vec3 light_position;
+		float attenuation = 1.0;
+
+		// No light
+		if (u_light_types[i] == 0)
+		{	
+			continue;
+		}
+
+		// Point light
+		if (u_light_types[i] == 1) 
+		{ 
+			light_position = u_light_positions[i] - world_position;
+			float distance = length(light_position);
+			attenuation = 1.0 / max(pow(distance, 2), 0.00001);
+		}
+		
+		// Spot light
+		if (u_light_types[i] == 2) 
+		{ 
+			light_position = u_light_positions[i] - world_position;
+			float distance = length(light_position);
+			attenuation = 1.0 / max(pow(distance, 2), 0.00001);
+
+			//Angular attenuation (spotlight cone)
+			vec3 L = normalize(light_position);
+			vec3 D = normalize(u_light_directions[i]); 
+			float L_dot_D = dot(L, D);
+
+			float cos_max = u_light_cos_angle_max[i];
+			float cos_min = u_light_cos_angle_min[i];
+			
+			float angular_attenuation = 0.0;
+			if (L_dot_D >= cos_max)
+			{
+				angular_attenuation = clamp((L_dot_D - cos_max) / max(cos_min - cos_max, 0.00001), 0.0, 1.0);
+			} 
+			attenuation *= angular_attenuation;
+
+		}
+		
+		// Directional light
+		if (u_light_types[i] == 3)
+		{
+			light_position = u_light_positions[i];
+			attenuation = 1.0;
+		}
+
+		// Phong lighting
+		light_position = normalize(light_position);
+		vec3 view_position = normalize(u_camera_position - world_position);
+		vec3 normal_direction = normalize(normal);
+		vec3 reflection_direction = normalize(reflect(-light_position, normal_direction));
+		vec3 light_color = attenuation * u_light_colors[i] * u_light_intensities[i];
+
+		float L_dot_N = clamp(dot(normal_direction, light_position), 0.0, 1.0);
+		float R_dot_V = clamp(dot(reflection_direction, view_position), 0.0, 1.0);
+
+		diffuse_component += light_color * L_dot_N;
+		specular_component += light_color * pow(R_dot_V, shininess);
+	}
+
+	vec3 color = albedo * (0*ambient_component + diffuse_component + 0*specular_component);
+
+    FragColor = vec4(color, 1.0);
 }

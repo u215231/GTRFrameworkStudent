@@ -45,7 +45,7 @@ namespace SCN {
 
 		std::vector<SCN::LightEntity*> light_list; //lab2
 		LightCommand light_command; // lab2
-		
+
 		std::vector<GFX::FBO*> shadow_FBOs; //lab3
 		std::vector<Camera*> camera_light_list; //lab3
 		ShadowCommand shadow_command; // lab3
@@ -53,7 +53,7 @@ namespace SCN {
 		RenderPipeline current_pipeline; //lab4
 		GbufferType current_gbuffer; //lab4
 		DeferredCommand deferred_command; //lab4
-		
+
 		//updated every frames
 		Renderer(const char* shaders_atlas_filename);
 		~Renderer();
@@ -75,6 +75,7 @@ namespace SCN {
 		void renderShader(Camera* camera, DrawCommand draw_command, const char* shader_name) const;
 		void renderForward() const;
 		void renderDeferred();
+		void renderDeferredLightingPass() const;
 
 		//to show user interface
 		void showUI();

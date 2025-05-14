@@ -21,8 +21,9 @@ enum class GbufferType {
 class DeferredCommand {
 public:
 	int max_textures;
+	int width;
+	int height;
 	GFX::FBO* gbuffer_FBO;
-	GFX::FBO* depth_FBO;
 
 	DeferredCommand();
 	~DeferredCommand();
