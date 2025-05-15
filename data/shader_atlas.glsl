@@ -428,7 +428,7 @@ void main()
 {
     vec2 uv = gl_FragCoord.xy * u_res_inv;
 
-    vec3 albedo = texture(u_gbuffer_color, uv).rgb;
+    vec3 albedo = pow(texture(u_gbuffer_color, uv).rgb, vec3(2.2));
     vec3 normal = texture(u_gbuffer_normal, uv).xyz;
 	vec3 world_position = texture(u_gbuffer_position, uv).xyz;
     float depth = texture(u_gbuffer_depth, uv).r;

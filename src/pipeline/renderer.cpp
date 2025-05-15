@@ -441,7 +441,7 @@ void Renderer::showUI()
 		//light selector
 		ImGui::SliderInt("Shadow Index", &selected_light, 0, num_shadows - 1);
 
-		//clamp selected_light to valid range in case lights change dynamically
+		//clamp selected_light to valid range
 		selected_light = std::clamp(selected_light, 0, num_shadows - 1);
 
 		//bias slider
@@ -465,6 +465,12 @@ void Renderer::showUI()
 		ImGui::SliderInt("Texture", &deferred_texture, 0, num_textures - 1);
 		this->current_gbuffer = (GbufferType)deferred_texture;
 	}*/
+
+	//Ambient Light Slider
+	ImGui::SliderFloat("Ambient R", &this->scene->ambient_light.x, 0.0f, 1.0f);
+	ImGui::SliderFloat("Ambient G", &this->scene->ambient_light.y, 0.0f, 1.0f);
+	ImGui::SliderFloat("Ambient B", &this->scene->ambient_light.z, 0.0f, 1.0f);
+
 }
 
 #else

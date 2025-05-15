@@ -375,5 +375,3 @@ SCN::RayTestResult SCN::Scene::testRay(Ray& ray, uint8 layers)
 
 	return result;
 }
-
-
