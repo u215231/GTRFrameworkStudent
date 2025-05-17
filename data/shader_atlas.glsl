@@ -427,12 +427,18 @@ uniform float u_shadow_biases[MAX_NUM_SHADOWS];
 void main() 
 {
     vec2 uv = gl_FragCoord.xy * u_res_inv;
+	vec2 uv_clip = uv * 2.0 -1.0;
 
     vec3 albedo = pow(texture(u_gbuffer_color, uv).rgb, vec3(2.2));
     vec3 normal = texture(u_gbuffer_normal, uv).xyz;
-	vec3 world_position = texture(u_gbuffer_position, uv).xyz;
     float depth = texture(u_gbuffer_depth, uv).r;
-    
+	float depth_clip = depth * 2.0 - 1.0;
+
+	vec4 clip_coords = vec4( uv_clip.x, uv_clip.y, depth_clip, 1.0);
+
+	vec4 not_norm_world_pos = u_inv_vp_mat * clip_coords;
+	vec3 world_position = not_norm_world_pos.xyz / not_norm_world_pos.w;
+
 	vec3 ambient_component = u_light_ambient;
 	vec3 diffuse_component = vec3(0.0);
 	vec3 specular_component = vec3(0.0);
