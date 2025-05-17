@@ -414,7 +414,7 @@ uniform int u_light_types[MAX_NUM_LIGHTS];
 uniform float u_light_cos_angle_max[MAX_NUM_LIGHTS];
 uniform float u_light_cos_angle_min[MAX_NUM_LIGHTS];
 
-const float shininess = 10.0;
+const float shininess = 20.0;
 
 // Shading
 #define MAX_NUM_SHADOWS 10
@@ -431,6 +431,7 @@ void main()
 
     vec3 albedo = pow(texture(u_gbuffer_color, uv).rgb, vec3(2.2));
     vec3 normal = texture(u_gbuffer_normal, uv).xyz;
+	normal = normalize(normal * 2.0 - 1.0); //Decode from [0,1] back to [-1,1]
     float depth = texture(u_gbuffer_depth, uv).r;
 	float depth_clip = depth * 2.0 - 1.0;
 
@@ -438,6 +439,7 @@ void main()
 
 	vec4 not_norm_world_pos = u_inv_vp_mat * clip_coords;
 	vec3 world_position = not_norm_world_pos.xyz / not_norm_world_pos.w;
+
 
 	vec3 ambient_component = u_light_ambient;
 	vec3 diffuse_component = vec3(0.0);
@@ -447,6 +449,7 @@ void main()
 	{
 		vec3 light_position;
 		float attenuation = 1.0;
+		float shadow_factor = 1.0;
 
 		// No light
 		if (u_light_types[i] == 0)
@@ -483,7 +486,6 @@ void main()
 				angular_attenuation = clamp((L_dot_D - cos_max) / max(cos_min - cos_max, 0.00001), 0.0, 1.0);
 			} 
 			attenuation *= angular_attenuation;
-
 		}
 		
 		// Directional light
@@ -503,8 +505,10 @@ void main()
 		float L_dot_N = clamp(dot(normal_direction, light_position), 0.0, 1.0);
 		float R_dot_V = clamp(dot(reflection_direction, view_position), 0.0, 1.0);
 
-		diffuse_component += light_color * L_dot_N;
-		specular_component += light_color * pow(R_dot_V, shininess);
+		diffuse_component +=  light_color * L_dot_N;
+		specular_component +=  light_color * pow(R_dot_V, shininess);
+
+
 	}
 
 	vec3 color = albedo * (ambient_component + diffuse_component + specular_component);
