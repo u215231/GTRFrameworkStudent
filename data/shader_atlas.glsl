@@ -329,10 +329,28 @@ void main()
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
+\PBR_functions
+
+const float PI = 3.14159265359;
+
+vec3 comp_F(vec3 F0, float H_dot_V){
+	return F0 + (vec3(1.0) - F0)*pow((1.0 - H_dot_V),5.0);
+}
+float comp_D(float alpha_sq, float N_dot_H){
+	return alpha_sq / (PI * pow(pow(N_dot_H,2.0) * (alpha_sq - 1.0) + 1.0, 2.0));
+}
+
+float comp_G(float N_dot_V, float alpha){
+	return N_dot_V / (N_dot_V * (1.0 - alpha/2.0) + alpha/2.0);
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
 
 \deferred_light_pass.fs
 
 #version 330 core
+
+#include “PBR_functions”
 
 #define NO_LIGHT 0
 #define POINT_LIGHT 1
@@ -484,6 +502,8 @@ void main()
 
 #version 330 core
 
+#include "PBR_functions"
+
 #define NO_LIGHT 0
 #define POINT_LIGHT 1
 #define SPOT_LIGHT 2
@@ -498,7 +518,11 @@ in vec2 v_uv;
 in vec4 v_color;
 
 uniform vec4 u_color;
-uniform sampler2D u_texture;
+
+uniform sampler2D u_albedo_texture;
+uniform sampler2D u_normal_texture;
+uniform sampler2D u_metallic_roughness_texture;
+
 uniform float u_time;
 uniform float u_alpha_cutoff;
 
@@ -567,65 +591,155 @@ float angular_attenuation(vec3 light_position, vec3 light_direction, vec2 cos_an
 
 void main()
 {
-	vec2 uv = v_uv;
-	vec4 color = u_color;
-	color *= texture( u_texture, v_uv );
+	vec3 ao_rough_metal = texture(u_metallic_roughness_texture, v_uv).rgb;
+	//float ao = ao_rough_metal.r;
+	float roughness = ao_rough_metal.g;
+	float metalness = ao_rough_metal.b;
+	vec3 albedo_srgb = texture(u_albedo_texture, v_uv).rgb;
+	vec3 albedo = pow(albedo_srgb, vec3(2.2)); //convert sRGB ? linear
 
-	vec3 ambient_component = u_light_ambient;
-	vec3 diffuse_component = vec3(0.0);
-	vec3 specular_component = vec3(0.0);
 
-	int shadow_num = 0;
+	bool phong = false;
+	bool PBR = true;
+	if (phong){
+		vec2 uv = v_uv;
+		vec4 color = u_color;
+		color *= texture( u_albedo_texture, v_uv );
 
-	for (int i = 0; i < u_num_lights; i++) 
-	{
-		int type = u_light_types[i];
-		vec3 light_position = u_light_positions[i];
-		vec3 light_direction = u_light_directions[i];
-		vec2 cos_angles = u_light_cos_angles[i];
-		float attenuation = 1.0;
-		float shadow = 1.0;
+		vec3 ambient_component = u_light_ambient;
+		vec3 diffuse_component = vec3(0.0);
+		vec3 specular_component = vec3(0.0);
 
-		if (type == NO_LIGHT)
-			continue;
+		int shadow_num = 0;
 
-		if (type == POINT_LIGHT)
-		{	
-			light_position -= v_world_position;
-			attenuation = quadratic_attenuation(light_position);
-		} 
 
-		if (type == SPOT_LIGHT)
-		{  
-			light_position -= v_world_position;
-			attenuation = angular_attenuation(light_position, light_direction, cos_angles);	
-			shadow = compute_shadow(shadow_num++); 
-		}
+		for (int i = 0; i < u_num_lights; i++) 
+		{
+			int type = u_light_types[i];
+			vec3 light_position = u_light_positions[i];
+			vec3 light_direction = u_light_directions[i];
+			vec2 cos_angles = u_light_cos_angles[i];
+			float attenuation = 1.0;
+			float shadow = 1.0;
 
-		if (type == DIRECTIONAL_LIGHT)
-		{	 
-			shadow = compute_shadow(shadow_num++);
-		}
+			if (type == NO_LIGHT)
+				continue;
 
-		vec3 L = normalize(light_position);
-		vec3 V = normalize(u_camera_position - v_world_position);
-		vec3 N = normalize(v_normal);
-		vec3 R = normalize(reflect(-L, N));
+			if (type == POINT_LIGHT)
+			{	
+				light_position -= v_world_position;
+				attenuation = quadratic_attenuation(light_position);
+			} 
+
+			if (type == SPOT_LIGHT)
+			{  
+				light_position -= v_world_position;
+				attenuation = angular_attenuation(light_position, light_direction, cos_angles);	
+				shadow = compute_shadow(shadow_num++); 
+			}
+
+			if (type == DIRECTIONAL_LIGHT)
+			{	 
+				shadow = compute_shadow(shadow_num++);
+			}
+
+			vec3 L = normalize(light_position);
+			vec3 V = normalize(u_camera_position - v_world_position);
+			vec3 N = normalize(v_normal);
+			vec3 R = normalize(reflect(-L, N));
 		
-		float L_dot_N = clamp(dot(N, L), 0.0, 1.0);
-		float R_dot_V = clamp(dot(R, V), 0.0, 1.0);
+			float L_dot_N = clamp(dot(N, L), 0.0, 1.0);
+			float R_dot_V = clamp(dot(R, V), 0.0, 1.0);
 
-		vec3 light_color =  attenuation * u_light_colors[i] * u_light_intensities[i];
+			vec3 light_color =  attenuation * u_light_colors[i] * u_light_intensities[i];
 
-		diffuse_component += shadow * light_color * L_dot_N;
-		specular_component += shadow * light_color * pow(R_dot_V, u_shininess);
+			diffuse_component += shadow * light_color * L_dot_N;
+			specular_component += shadow * light_color * pow(R_dot_V, u_shininess);
+		}
+
+		if(color.a < u_alpha_cutoff)
+			discard;
+
+		color.xyz *= ambient_component + diffuse_component + specular_component;
+		FragColor = color;
 	}
+	else if (PBR){
 
-	if(color.a < u_alpha_cutoff)
-		discard;
+		vec2 uv = v_uv;
+		vec4 color = u_color;
+		color *= texture( u_albedo_texture, v_uv );
 
-	color.xyz *= ambient_component + diffuse_component + specular_component;
-	FragColor = color;
+		if(color.a < u_alpha_cutoff)
+			discard;
+
+		vec3 diffuse_component = vec3(0.0);
+		vec3 specular_component = vec3(0.0);
+		vec3 directLighting = vec3(0.0);
+
+		vec3 F0 = mix(vec3(0.04), albedo, metalness);
+
+		int shadow_num = 0;
+
+		for (int i = 0; i < u_num_lights; i++) 
+		{
+			int type = u_light_types[i];
+			vec3 light_position = u_light_positions[i];
+			vec3 light_direction = u_light_directions[i];
+			vec2 cos_angles = u_light_cos_angles[i];
+			float attenuation = 1.0;
+			float shadow = 1.0;
+
+			if (type == NO_LIGHT)
+				continue;
+
+			if (type == POINT_LIGHT)
+			{	
+				light_position -= v_world_position;
+				attenuation = quadratic_attenuation(light_position);
+			} 
+
+			if (type == SPOT_LIGHT)
+			{  
+				light_position -= v_world_position;
+				attenuation = angular_attenuation(light_position, light_direction, cos_angles);	
+				shadow = compute_shadow(shadow_num++); 
+			}
+
+			if (type == DIRECTIONAL_LIGHT)
+			{	 
+				shadow = compute_shadow(shadow_num++);
+			}
+
+			vec3 L = normalize(light_position);
+			vec3 V = normalize(u_camera_position - v_world_position);
+			vec3 N = normalize(v_normal);
+			vec3 R = normalize(reflect(-L, N));
+			vec3 H = normalize(V+L);
+
+			float rp = clamp(roughness, 0.0, 1.0);
+			float alpha = rp*rp;
+			float alpha_sq = pow(alpha,2.0);
+
+			float N_dot_L = clamp(dot(N, L), 0.0, 1.0);
+			float N_dot_V = clamp(dot(N,V), 0.0, 1.0);
+			float H_dot_V = clamp(dot(H,V), 0.0, 1.0);
+			float N_dot_H = clamp(dot(N,H), 0.0, 1.0);
+
+			vec3 fresnel  = comp_F(F0, H_dot_V);
+			float distribution  = comp_D(alpha_sq, N_dot_H);
+			float geometry = comp_G(N_dot_V, alpha);
+
+			vec3 light_color =  attenuation * u_light_colors[i];
+			diffuse_component = shadow * light_color * N_dot_L;
+			float denom = max((4.0 * N_dot_L * N_dot_V), 0.0001);
+			specular_component = shadow*((fresnel * distribution * geometry) / denom);
+
+			directLighting += (diffuse_component + specular_component) * u_light_intensities[i] * N_dot_L;
+		}
+
+		color.xyz *=  directLighting;//diffuse_component + specular_component;
+		FragColor = color;
+	}
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
