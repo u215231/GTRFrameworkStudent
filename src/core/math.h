@@ -240,6 +240,7 @@ class Matrix44
 
 		Matrix44();
 		Matrix44(const float* v);
+		Matrix44(Matrix44* matrix);
 
 		void set(); //multiply with opengl matrix
 		void load(); //load in opengl matrix
@@ -254,6 +255,7 @@ class Matrix44
 		Vector3f frontVector() { return Vector3f(m[8],m[9],m[10]); }
 
 		bool inverse();
+		Matrix44 getInverse();
 		void setUpAndOrthonormalize(Vector3f up);
 		void setFrontAndOrthonormalize(Vector3f front);
 
@@ -285,7 +287,7 @@ class Matrix44
 		void perspective(float fov, float aspect, float near_plane, float far_plane);
 		void ortho(float left, float right, float bottom, float top, float near_plane, float far_plane);
 
-		Vector3f project(const Vector3f& v);
+		Vector3f project(const Vector3f& v) const;
 
 		Matrix44 operator * (const Matrix44& matrix) const;
 };

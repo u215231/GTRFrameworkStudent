@@ -12,7 +12,7 @@ DeferredCommand::DeferredCommand()
 {
 	this->width = 0;
 	this->height = 0;
-	this->max_textures = 3;
+	this->max_textures = 4;
 	this->gbuffer_FBO = nullptr;
 }
 
@@ -70,7 +70,12 @@ void DeferredCommand::view(GbufferType type)
 		gbuffer_FBO->color_textures[(int)type]->toViewport();
 }
 
-void DeferredCommand::uploadUniforms(GFX::Shader* shader, GbufferType type) const
+void DeferredCommand::uploadTextures(GFX::Shader* shader) const
 {
-	shader->setUniform("u_texture", gbuffer_FBO->color_textures[(int)type], 0);
+	int texture_slot = 0;
+	shader->setTexture("u_gbuffer_color", gbuffer_FBO->color_textures[0], texture_slot++);
+	shader->setTexture("u_gbuffer_normal", gbuffer_FBO->color_textures[1], texture_slot++);
+	shader->setTexture("u_gbuffer_position", gbuffer_FBO->color_textures[2], texture_slot++);
+	shader->setTexture("u_gbuffer_shadow", gbuffer_FBO->color_textures[3], texture_slot++);
+	shader->setTexture("u_gbuffer_depth", gbuffer_FBO->depth_texture, texture_slot++);
 }

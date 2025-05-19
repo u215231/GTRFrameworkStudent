@@ -169,6 +169,14 @@ Matrix44::Matrix44(const float* v)
 	memcpy( (void*)m, (void*)v, sizeof(float) * 16);
 }
 
+Matrix44::Matrix44(Matrix44* matrix)
+{
+	m[0] = matrix->m[0]; m[4] = matrix->m[4]; m[8] = matrix->m[8]; m[12] = matrix->m[12];
+	m[1] = matrix->m[1]; m[5] = matrix->m[5]; m[9] = matrix->m[9]; m[13] = matrix->m[13];
+	m[2] = matrix->m[2]; m[6] = matrix->m[6]; m[10] = matrix->m[10]; m[14] = matrix->m[14];
+	m[3] = matrix->m[3]; m[7] = matrix->m[7]; m[11] = matrix->m[11]; m[15] = matrix->m[15];
+}
+
 void Matrix44::clear()
 {
 	memset(m, 0, 16*sizeof(float));
@@ -391,7 +399,7 @@ void Matrix44::ortho(float left, float right, float bottom, float top, float nea
 }
 
 //applies matrix projection to vector (returns in normalized coordinates)
-Vector3f Matrix44::project(const Vector3f& v)
+Vector3f Matrix44::project(const Vector3f& v) const
 {
 	float x = m[0] * v.x + m[4] * v.y + m[8] * v.z + m[12];
 	float y = m[1] * v.x + m[5] * v.y + m[9] * v.z + m[13];
@@ -575,6 +583,13 @@ bool Matrix44::inverse()
 	m[14] = tmp.m[14] * rdet;
 	m[15] = tmp.m[15] * rdet;
 	return true;
+}
+
+Matrix44 Matrix44::getInverse()
+{
+	Matrix44 copy = *this;
+	copy.inverse();
+	return copy;
 }
 
 Quaternion::Quaternion()

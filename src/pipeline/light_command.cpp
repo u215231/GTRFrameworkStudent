@@ -29,18 +29,15 @@ void LightCommand::parseLights(std::vector<SCN::LightEntity*> light_list, SCN::S
 
 		if (light->light_type == SCN::eLightType::DIRECTIONAL) {
 			this->directions[i] = light->root.getGlobalMatrix().frontVector();
-			this->cos_angle_max[i] = 0.0f;
-			this->cos_angle_min[i] = 0.0f;
+			this->cos_angles[i] = vec2(0.0f, 0.0f);
 		}
 		else if (light->light_type == SCN::eLightType::SPOT) {
 			this->directions[i] = light->root.getGlobalMatrix().frontVector();
-			this->cos_angle_max[i] = light->toCos(light->getCosAngleMax());
-			this->cos_angle_min[i] = light->toCos(light->getCosAngleMin());
+			this->cos_angles[i] = light->getConeInfo();
 		}
 		else {
 			this->directions[i] = vec3(0.0f);
-			this->cos_angle_min[i] = 0.0f;
-			this->cos_angle_max[i] = 0.0f;
+			this->cos_angles[i] = vec2(0.0f, 0.0f);
 		}
 		i++;
 	}
@@ -55,7 +52,6 @@ void LightCommand::uploadUniforms(GFX::Shader* shader) const
 	shader->setUniform3Array("u_light_colors", (float*)this->colors, n);
 	shader->setUniform3Array("u_light_directions", (float*)this->directions, n);
 	shader->setUniform1Array("u_light_types", (int*)this->types, n);
-	shader->setUniform1Array("u_light_cos_angle_max", (float*)this->cos_angle_max, n);
-	shader->setUniform1Array("u_light_cos_angle_min", (float*)this->cos_angle_min, n);
+	shader->setUniform2Array("u_light_cos_angles", (float*)this->cos_angles, n);
 	shader->setUniform1Array("u_light_intensities", (float*)this->intensities, n);
 }

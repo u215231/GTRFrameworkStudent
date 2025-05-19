@@ -175,13 +175,14 @@ void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
 	this->setupScene();
 	this->parseSceneEntities(scene, camera);
 
+	for (int i = 0; i < (int)this->camera_light_list.size(); i++) {
+		Camera* camera_light = this->camera_light_list.at(i);
+		GFX::FBO* shadow_fbo = this->shadow_FBOs.at(i);
+		this->renderShadow(camera_light, shadow_fbo);
+	}
+
 	switch (this->current_pipeline) {
 	case RenderPipeline::FORWARD:
-		for (int i = 0; i < (int)this->camera_light_list.size(); i++) {
-			Camera* camera_light = this->camera_light_list.at(i);
-			GFX::FBO* shadow_fbo = this->shadow_FBOs.at(i);
-			this->renderShadow(camera_light, shadow_fbo);
-		}
 		this->renderForward();
 		break;
 	case RenderPipeline::DEFERRED:
@@ -243,7 +244,7 @@ void Renderer::renderMeshWithMaterial(DrawCommand draw_command) const
 	glEnable(GL_DEPTH_TEST);
 	assert(glGetError() == GL_NO_ERROR);
 
-	GFX::Shader* shader = GFX::Shader::Get("texture");
+	GFX::Shader* shader = GFX::Shader::Get("forward_light_pass");
 	if (!shader)
 		return;
 	shader->enable();
@@ -307,6 +308,7 @@ void Renderer::renderShader(Camera* camera, DrawCommand draw_command, const char
 
 	draw_command.material->bind(shader);
 
+	this->shadow_command.uploadUniforms(shader);
 	shader->setUniform("u_model", draw_command.model);
 	shader->setUniform("u_viewprojection", camera->viewprojection_matrix);
 	shader->setUniform("u_camera_position", camera->eye);
@@ -344,7 +346,7 @@ void Renderer::renderForward() const
 	glEnable(GL_BLEND);
 	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
-	// Render transparent entities
+	//render transparent entities
 	for (DrawCommand draw_command : this->draw_command_transparent_list) {
 		this->renderMeshWithMaterial(draw_command);
 	}
@@ -356,22 +358,18 @@ void Renderer::renderDeferred()
 {
 	this->deferred_command.bind();
 
-	//set the clear color (the background color)
 	glClearColor(scene->background_color.x,
 		scene->background_color.y,
 		scene->background_color.z,
 		1.0);
 
-	//clear the color and the depth buffer
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 	GFX::checkGLErrors();
 
-	//render skybox
 	if (this->skybox_cubemap) {
 		this->renderSkybox(this->skybox_cubemap);
 	}
 
-	//render opaque entities
 	for (DrawCommand draw_command : this->draw_command_opaque_list) {
 		this->renderShader(Camera::current, draw_command, "gbuffer_fill");
 	}
@@ -381,41 +379,32 @@ void Renderer::renderDeferred()
 	glDisable(GL_BLEND);
 
 	this->deferred_command.unbind();
-
-	//this->deferred_command.view(this->current_gbuffer);
 }
 
 void Renderer::renderDeferredLightingPass() const {
 
 	Camera* camera = Camera::current;
 
-
 	// 2. Get the full-screen quad mesh
 	GFX::Mesh* quad = GFX::Mesh::getQuad();
 
 	// 3. Enable the lighting shader
 	GFX::Shader* shader = GFX::Shader::Get("deferred_light_pass");
-	if (!shader) return;
+	if (!shader) 
+		return;
 	shader->enable();
 
 	// 4. Send light uniforms
 	this->light_command.uploadUniforms(shader);
 	this->shadow_command.uploadUniforms(shader);
 	shader->setUniform("u_camera_position", camera->eye);
+	shader->setUniform("u_inv_vp_mat", camera->viewprojection_matrix.getInverse());
+
 	Vector2 window_size = CORE::getWindowSize();
 	shader->setUniform("u_res_inv", vec2(1.0f / window_size.x, 1.0f / window_size.y));
 
-	Matrix44 inv_vp_mat = camera->viewprojection_matrix;
-	inv_vp_mat.inverse();
-	shader->setUniform("u_inv_vp_mat", inv_vp_mat);
-
 	// 5. Bind G-buffer textures
-	GFX::FBO* fbo = this->deferred_command.gbuffer_FBO;
-	int texture_slot = 0;
-	shader->setTexture("u_gbuffer_color", fbo->color_textures[0], texture_slot++);
-	shader->setTexture("u_gbuffer_normal", fbo->color_textures[1], texture_slot++);
-	shader->setTexture("u_gbuffer_position", fbo->color_textures[2], texture_slot++);
-	shader->setTexture("u_gbuffer_depth", fbo->depth_texture, texture_slot++);
+	this->deferred_command.uploadTextures(shader);
 
 	// 6. Render the full-screen quad
 	quad->render(GL_TRIANGLES);

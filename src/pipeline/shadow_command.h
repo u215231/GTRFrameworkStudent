@@ -10,11 +10,11 @@ namespace GFX {
 class ShadowCommand
 {
 public:
-	int num_shadows = 0;
-	int slots[MAX_NUM_LIGHTS] = { 0 };
-	float biases[MAX_NUM_LIGHTS] = { 0 };
-	Matrix44 view_projections[MAX_NUM_LIGHTS];
-	GFX::Texture* depth_textures[MAX_NUM_LIGHTS] = { nullptr };
+	int num_shadows = 0;											// Number of shadows
+	int slots[MAX_NUM_LIGHTS] = { 0 };								// Slots of shadow maps
+	float biases[MAX_NUM_LIGHTS] = { 0 };							// Shadow biases	
+	Matrix44 view_projections[MAX_NUM_LIGHTS];						// View projections from the point of view of lights
+	GFX::Texture* depth_textures[MAX_NUM_LIGHTS] = { nullptr };		// Shadow map textures 
 
 	ShadowCommand();
 	~ShadowCommand();

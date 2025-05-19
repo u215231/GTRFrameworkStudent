@@ -34,6 +34,6 @@ public:
 	void bind();
 	void unbind();
 	void view(GbufferType type);
-	void uploadUniforms(GFX::Shader* shader, GbufferType type) const;
+	void uploadTextures(GFX::Shader* shader) const;
 };
 
