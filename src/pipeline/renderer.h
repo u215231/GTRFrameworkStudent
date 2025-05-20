@@ -30,9 +30,14 @@ namespace SCN {
 		LIGHT_VOLUME = 2
 	};
 
+	enum class Lighting_Type {
+		PHONG = 0,
+		PBR = 1
+	};
+
 	enum class ForwardMode {
 		SINGLE_PASS = 0,
-		MULTI_PASS = 1 
+		MULTI_PASS = 1
 	};
 
 	//this class is in charge of rendering anything in our system.
@@ -52,14 +57,16 @@ namespace SCN {
 
 		std::vector<SCN::LightEntity*> light_list; //lab2
 		LightCommand light_command; // lab2
-		ForwardMode current_forward_mode;
-
+		
 		std::vector<GFX::FBO*> shadow_FBOs; //lab3
 		std::vector<Camera*> camera_light_list; //lab3
 		ShadowCommand shadow_command; // lab3
 
+		ForwardMode current_forward_mode;
+		GbufferType current_gbuffer;
 		RenderPipeline current_pipeline; //lab4
 		DeferredCommand deferred_command; //lab4
+		Lighting_Type lighting_type;
 		DeferredCommand lighting;
 		std::vector<GFX::Mesh> spheres; //lab4
 

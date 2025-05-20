@@ -43,8 +43,10 @@ Renderer::Renderer(const char* shader_atlas_filename)
 	this->sphere.createSphere(1.0f);
 	this->sphere.uploadToVRAM();
 
-	this->current_forward_mode = ForwardMode::MULTI_PASS;
-	this->current_pipeline = RenderPipeline::FORWARD;
+	this->current_forward_mode = ForwardMode::SINGLE_PASS;
+	this->current_pipeline = RenderPipeline::DEFERRED;
+	this->lighting_type = Lighting_Type::PBR;
+	this->current_gbuffer = GbufferType::ALBEDO_MAP;
 	this->deferred_command.init(2 * window_size.x, 2 * window_size.y); // 1024, 768 default
 	this->lighting.init(2 * window_size.x, 2 * window_size.y);
 }
@@ -73,7 +75,7 @@ void Renderer::setupScene()
 }
 
 ///////////////////////////////////////////////////////////////////////////////
-// Parsers                                                                   //
+// P A R S E R S                                                                   
 ///////////////////////////////////////////////////////////////////////////////
 
 //store children prefab entities
@@ -127,7 +129,7 @@ void Renderer::parseCameraLights(std::vector<SCN::LightEntity*> light_list)
 		delete camera;
 	}
 	this->camera_light_list.clear();
-	for (SCN::LightEntity* light : light_list) {
+	for (LightEntity* light : light_list) {
 		Camera* camera = light->getCamera();
 		if (camera) {
 			this->camera_light_list.push_back(camera);
@@ -161,16 +163,19 @@ void Renderer::parseSceneEntities(Scene* scene, Camera* camera)
 		if (!entity->visible) {
 			continue;
 		}
+
+		//store prefab entities
 		if (entity->getType() == eEntityType::PREFAB) {
 			this->prefab_list.push_back((PrefabEntity*)entity);
 			continue;
 		}
+		//store light entities
 		if (entity->getType() == eEntityType::LIGHT) {
 			this->light_list.push_back((LightEntity*)entity);
 		}
 	}
 
-
+	// For light volumes: still in testing
 	std::vector<SCN::LightEntity*> directional_light_list;
 	for (SCN::LightEntity* light : this->light_list) {
 		if (light->light_type == SCN::eLightType::DIRECTIONAL) {
@@ -193,7 +198,7 @@ void Renderer::parseSceneEntities(Scene* scene, Camera* camera)
 }
 
 ///////////////////////////////////////////////////////////////////////////////
-// Renderers                                                                 //
+// R E N D E R E R S                                                                
 ///////////////////////////////////////////////////////////////////////////////
 
 
@@ -238,7 +243,7 @@ void Renderer::renderSkybox(GFX::Texture* cubemap)
 }
 
 //renders a mesh given its transform and material
-/*
+
 void Renderer::renderMeshWithMaterial(DrawCommand draw_command) const
 {
 	Camera* camera = Camera::current;
@@ -262,7 +267,11 @@ void Renderer::renderMeshWithMaterial(DrawCommand draw_command) const
 	shader->setUniform("u_model", draw_command.model);
 	shader->setUniform("u_viewprojection", camera->viewprojection_matrix);
 	shader->setUniform("u_camera_position", camera->eye);
-	shader->setUniform("u_time", (float)getTime());
+	shader->setUniform("u_lighting_type", static_cast<int>(this->lighting_type));
+
+	//upload time, for cool shader effects
+	float time = getTime();
+	shader->setUniform("u_time", time);
 
 	if (this->render_wireframe)
 		glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
@@ -274,7 +283,7 @@ void Renderer::renderMeshWithMaterial(DrawCommand draw_command) const
 	glDisable(GL_BLEND);
 	glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 }
-*/
+
 
 void Renderer::renderShaderMultiPass(Camera* camera, DrawCommand draw_command) const
 {
@@ -458,6 +467,7 @@ void Renderer::renderDeferredLightingPass() const {
 
 	Vector2 window_size = CORE::getWindowSize();
 	shader->setUniform("u_res_inv", vec2(1.0f / window_size.x, 1.0f / window_size.y));
+	shader->setUniform("u_lighting_type", static_cast<int>(this->lighting_type));
 
 	//send geometric buffer textures
 	this->deferred_command.uploadTextures(shader);
@@ -573,12 +583,17 @@ void Renderer::renderScene(Scene* scene, Camera* camera)
 		this->renderDeferred();
 		this->renderDeferredLightingPass();
 		break;
+	// Do not call because does not work
 	case RenderPipeline::LIGHT_VOLUME:
 		this->renderDeferred();
 		this->renderLightVolumes();
 		break;
 	}
 }
+
+///////////////////////////////////////////////////////////////////////////////
+// U S E R   I N T E R F A C E
+///////////////////////////////////////////////////////////////////////////////
 
 #ifndef SKIP_IMGUI
 
@@ -609,15 +624,22 @@ void Renderer::showUI()
 	static int selected_mode = (int)this->current_pipeline;
 	ImGui::Separator();
 	ImGui::Text("Render Mode Selector\n(0 forward, 1 deferred)");
-	ImGui::SliderInt("Mode", &selected_mode, 0, 2);
+	ImGui::SliderInt("Mode", &selected_mode, 0, 1);
 	this->current_pipeline = (RenderPipeline)selected_mode;
 
-	//forward mode UI
-	static int seleceted_forward_mode = (int)this->current_forward_mode;
+	// forward mode UI: single or multi pass
+	static int forward_mode = (int)this->current_forward_mode;
 	ImGui::Separator();
 	ImGui::Text("Forward Mode Selector\n(0 single, 1 multi)");
-	ImGui::SliderInt("Forward Mode", &seleceted_forward_mode, 0, 1);
-	this->current_forward_mode = (ForwardMode)seleceted_forward_mode;
+	ImGui::SliderInt("Pass", &forward_mode, 0, 1);
+	this->current_forward_mode = (ForwardMode)forward_mode;
+
+	//lighting type UI
+	static int lighting = (int)this->lighting_type;
+	ImGui::Separator();
+	ImGui::Text("Lighting Type Selector\n(0 Phong, 1 PBR)");
+	ImGui::SliderInt("Type", &lighting, 0, 1);
+	this->lighting_type = (Lighting_Type)lighting;
 
 	//ambient Light Slider
 	ImGui::SliderFloat("Ambient R", &this->scene->ambient_light.x, 0.0f, 1.0f);
