@@ -61,6 +61,7 @@ void SCN::LightEntity::serialize(cJSON* json)
 		writeJSONString(json, "light_type", "DIRECTIONAL");
 }
 
+//gets a null camera if light is point or it is not defined
 Camera* SCN::LightEntity::getCamera()
 {
 	if (this->light_type == SCN::eLightType::POINT

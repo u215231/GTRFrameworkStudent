@@ -24,4 +24,6 @@ public:
 
 	void parseLights(std::vector<SCN::LightEntity*> light_list, SCN::Scene* scene);
 	void uploadUniforms(GFX::Shader* shader) const;
+	void uploadUniform(GFX::Shader* shader, int light_num) const;
+
 };

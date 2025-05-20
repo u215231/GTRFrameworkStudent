@@ -8,7 +8,97 @@ multi basic.vs multi.fs
 plain basic.vs plain.fs
 gbuffer_fill basic.vs gbuffer_fill.fs
 deferred_light_pass quad.vs deferred_light_pass.fs
-forward_light_pass basic.vs forward_light_pass.fs
+forward_light_single_pass basic.vs forward_light_single_pass.fs
+forward_light_multi_pass basic.vs forward_light_multi_pass.fs
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+\my_functions
+
+#define NO_LIGHT 0
+#define POINT_LIGHT 1
+#define SPOT_LIGHT 2
+#define DIRECTIONAL_LIGHT 3
+#define MAX_NUM_LIGHTS 10
+#define MAX_NUM_SHADOWS 10
+
+vec3 correct_light_position(vec3 light_position, vec3 world_position, int type);
+float compute_phong(vec3 light_position, vec3 camera_position, vec3 world_position, vec3 normal, float shininess);
+vec3 compute_intensified_color(vec3 light_color, float light_intensity);
+float quadratic_attenuation(vec3 light_position);
+float angular_attenuation(vec3 light_position, vec3 light_direction, vec2 light_cos_angle);
+float compute_attenuation(vec3 light_position, vec3 light_direction, vec2 light_cos_angle, int type);
+float compute_shadow(sampler2D shadow_map, mat4 shadow_viewprojection, float shadow_bias, vec3 world_position, int type); 
+
+vec3 correct_light_position(vec3 light_position, vec3 world_position, int type)
+{
+	 return light_position - world_position * float(type != DIRECTIONAL_LIGHT);
+}
+
+float compute_phong(vec3 light_position, vec3 camera_position, vec3 world_position, vec3 normal, float shininess)
+{
+	vec3 L = normalize(light_position);
+	vec3 V = normalize(camera_position - world_position);
+	vec3 N = normalize(normal);
+	vec3 R = normalize(reflect(-L, N));
+	float diffuse_component = clamp(dot(N, L), 0.0, 1.0);
+	float specular_component = pow(clamp(dot(R, V), 0.0, 1.0), shininess);
+	return diffuse_component + specular_component;
+}
+
+vec3 compute_intensified_color(vec3 light_color, float light_intensity)
+{
+	return light_color * light_intensity;
+}
+
+float quadratic_attenuation(vec3 light_position)
+{
+	float distance = length(light_position);
+	return 1.0 / max(pow(distance, 2), 0.00001);
+}
+
+float angular_attenuation(vec3 light_position, vec3 light_direction, vec2 light_cos_angle)
+{
+	vec3 L = normalize(light_position);
+	vec3 D = normalize(light_direction); 
+
+	float cos_min = light_cos_angle.x;
+	float cos_max = light_cos_angle.y;
+
+	float attenuation = clamp((dot(L, D) - cos_max) / max(cos_min - cos_max, 0.00001), 0.0, 1.0);
+	attenuation *= float(dot(L, D) >= cos_max);
+	attenuation *= quadratic_attenuation(light_position);
+	return attenuation;
+}
+
+float compute_attenuation(vec3 light_position, vec3 light_direction, vec2 light_cos_angle, int type)
+{
+	if (type == POINT_LIGHT)	
+		return quadratic_attenuation(light_position);
+	if (type == SPOT_LIGHT)
+		return angular_attenuation(light_position, light_direction, light_cos_angle);
+	return 1.0;
+}
+
+float compute_shadow(sampler2D shadow_map, mat4 shadow_viewprojection, float shadow_bias, vec3 world_position, int type) 
+{              
+	if (type == POINT_LIGHT) 
+		return 1.0;
+
+    vec4 light_space_pos = shadow_viewprojection * vec4(world_position, 1.0);
+    vec3 proj_coords = light_space_pos.xyz / light_space_pos.w;
+    proj_coords = (proj_coords + 1) / 2;
+
+	bool outside_shadow = proj_coords.x < 0.0 || proj_coords.x > 1.0 || 
+							proj_coords.y < 0.0 || proj_coords.y > 1.0 ||
+							proj_coords.z < 0.0 || proj_coords.z > 1.0;
+    if (outside_shadow)
+        return 0.0;
+
+    float shadow_closest_depth = texture(shadow_map, proj_coords.xy).x;
+    float current_depth = proj_coords.z;
+    return shadow_closest_depth < (current_depth - shadow_bias) ? 0.0 : 1.0;
+}
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -266,7 +356,7 @@ void main()
 
 #version 330 core
 
-#define MAX_NUM_SHADOWS 10
+#include "my_functions"
 
 in vec3 v_position;
 in vec3 v_world_position;
@@ -292,28 +382,16 @@ uniform sampler2D u_shadow_maps[MAX_NUM_SHADOWS];
 uniform mat4 u_shadow_vps[MAX_NUM_SHADOWS];
 uniform float u_shadow_biases[MAX_NUM_SHADOWS];
 
-float compute_shadows() 
+float merge_shadow_maps(int num_shadows, vec3 world_position) 
 {                    
-	float shadow = 0.0;
-	for (int i = 0; i < MAX_NUM_SHADOWS && i < u_num_shadows; i++)
+	float merged_shadow = 0.0;
+	for (int i = 0; i < MAX_NUM_SHADOWS && i < num_shadows; i++)
 	{
-		vec4 light_space_pos = u_shadow_vps[i] * vec4(v_world_position, 1.0);
-		vec3 proj_coords = light_space_pos.xyz / light_space_pos.w;
-		proj_coords = (proj_coords + 1) / 2;
-
-		bool outside_shadow = proj_coords.x < 0.0 || proj_coords.x > 1.0 || 
-								proj_coords.y < 0.0 || proj_coords.y > 1.0 ||
-								proj_coords.z < 0.0 || proj_coords.z > 1.0;
-		if (outside_shadow)
-			continue;
-
-		float shadow_closest_depth = texture(u_shadow_maps[i], proj_coords.xy).x;
-		float current_depth = proj_coords.z;
-		float shadow_condition = shadow_closest_depth < (current_depth - u_shadow_biases[i]) ? 0.0 : 1.0;
-		shadow += shadow_condition * pow(2, i);
+		float shadow = compute_shadow(u_shadow_maps[i], u_shadow_vps[i], u_shadow_biases[i], world_position, 2); 
+		merged_shadow += shadow * pow(2, i);
 	}
-	shadow /= pow(2, u_num_shadows) - 1.0;
-	return shadow;
+	merged_shadow /= pow(2, num_shadows) - 1.0;
+	return merged_shadow;
 }
 
 void main()
@@ -323,9 +401,9 @@ void main()
 	color *= texture( u_texture, uv );
 	
 	gbuffer_albedo_map = color;
-	gbuffer_normal_map = vec4((1 + normalize(v_normal))/2, 1.0);
+	gbuffer_normal_map = vec4((1.0 + normalize(v_normal))/2.0, 1.0);
 	gbuffer_position_map = vec4(v_world_position, 1.0);
-	gbuffer_shadow_map = vec4(vec3(compute_shadows()), 1.0);
+	gbuffer_shadow_map = vec4(vec3(merge_shadow_maps(u_num_shadows, v_world_position)), 1.0);
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -334,11 +412,7 @@ void main()
 
 #version 330 core
 
-#define NO_LIGHT 0
-#define POINT_LIGHT 1
-#define SPOT_LIGHT 2
-#define DIRECTIONAL_LIGHT 3
-#define MAX_NUM_LIGHTS 10
+#include "my_functions"
 
 in vec2 v_uv;
 
@@ -372,26 +446,14 @@ uniform int u_num_shadows;
 
 out vec4 FragColor;
 
-float quadratic_attenuation(vec3 light_position)
+float unmerge_shadow_map(int num_shadows, int shadow_num, float merged_shadow, int type)
 {
-	float distance = length(light_position);
-	return 1.0 / max(pow(distance, 2), 0.00001);
-}
-
-float angular_attenuation(vec3 light_position, vec3 light_direction, vec2 cos_angles)
-{
-	float distance = length(light_position);
-
-	vec3 L = normalize(light_position);
-	vec3 D = normalize(light_direction); 
-
-	float cos_min = cos_angles.x;
-	float cos_max = cos_angles.y;
-
-	float attenuation =  clamp((dot(L, D) - cos_max) / max(cos_min - cos_max, 0.00001), 0.0, 1.0);
-	attenuation *= float(dot(L, D) >= cos_max);
-	attenuation /= max(pow(distance, 2), 0.00001);
-	return attenuation;
+	float shadow = 1.0;
+	if (type == POINT_LIGHT)
+		return shadow;
+	merged_shadow *= pow(2, num_shadows) - 1.0;
+	shadow = mod(int(merged_shadow) / int(pow(2, shadow_num)), 2);
+	return shadow;
 }
 
 void main() 
@@ -418,78 +480,41 @@ void main()
 	vec4 not_norm_world_pos = u_inv_vp_mat * clip_coords;
 	vec3 world_position = not_norm_world_pos.xyz / not_norm_world_pos.w;
 
-	vec3 ambient_component = u_light_ambient;
-	vec3 diffuse_component = vec3(0.0);
-	vec3 specular_component = vec3(0.0);
+	vec3 total_accumulation = u_light_ambient;
 
-	int shadow_num = 0;
-	shadow *= pow(2, u_num_shadows) - 1.0;
-
-	for (int i = 0; i < u_num_lights && i < MAX_NUM_LIGHTS; ++i) 
+	int s = 0;
+	for (int i = 0; i < min(u_num_lights, MAX_NUM_LIGHTS); i++) 
 	{
 		int type = u_light_types[i];
-		vec3 light_position = u_light_positions[i];
-		vec3 light_direction = u_light_directions[i];
-		vec2 cos_angles = u_light_cos_angles[i];
-		float attenuation = 1.0;
-		float correct_shadow = 1.0;
-
 		if (type == NO_LIGHT)
-		{	
 			continue;
-		}
-
-		if (type == POINT_LIGHT) 
-		{ 
-			light_position -= world_position;
-			attenuation = quadratic_attenuation(light_position);
-		}
 		
-		if (type == SPOT_LIGHT) 
-		{ 
-			light_position -= world_position;
-			attenuation = angular_attenuation(light_position, light_direction, cos_angles);	
+		vec3 light_position = correct_light_position(u_light_positions[i], world_position, type);
 
-			correct_shadow = mod(int(shadow) / int(pow(2, shadow_num)), 2);
-			shadow_num++;
-		}
-		
-		if (type == DIRECTIONAL_LIGHT)
-		{
-			correct_shadow = mod(int(shadow) / int(pow(2, shadow_num)), 2);
-			shadow_num++;
-		}
+		vec3 accumulation = vec3(1.0);
 
-		vec3 L = normalize(light_position);
-		vec3 V = normalize(u_camera_position - world_position);
-		vec3 N = normalize(normal * 2.0 - 1.0); //Decode from [0,1] back to [-1,1]
-		vec3 R = normalize(reflect(-L, N));
-		
-		float L_dot_N = clamp(dot(N, L), 0.0, 1.0);
-		float R_dot_V = clamp(dot(R, V), 0.0, 1.0);
+		accumulation *= compute_phong(light_position, u_camera_position, world_position, normal * 2.0 - 1.0, shininess);
+		accumulation *= compute_attenuation(light_position, u_light_directions[i], u_light_cos_angles[i], type);
+		accumulation *= unmerge_shadow_map(u_num_shadows, s, shadow, type);
+		accumulation *= compute_intensified_color(u_light_colors[i], u_light_intensities[i]);
 
-		vec3 light_color = attenuation * u_light_colors[i] * u_light_intensities[i];
+		total_accumulation += accumulation;
 
-		diffuse_component += correct_shadow * light_color * L_dot_N;
-		specular_component += correct_shadow * light_color * pow(R_dot_V, shininess);
+		if (type != POINT_LIGHT)  
+			s++;
 	}
 
-	color.xyz *= ambient_component + diffuse_component + specular_component;
+	color.xyz *= total_accumulation;
 	FragColor = color;
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
-\forward_light_pass.fs
+\forward_light_single_pass.fs
 
 #version 330 core
 
-#define NO_LIGHT 0
-#define POINT_LIGHT 1
-#define SPOT_LIGHT 2
-#define DIRECTIONAL_LIGHT 3
-#define MAX_NUM_LIGHTS 10
-#define MAX_NUM_SHADOWS 10
+#include "my_functions"
 
 in vec3 v_position;
 in vec3 v_world_position;
@@ -526,105 +551,95 @@ uniform float u_shadow_biases[MAX_NUM_SHADOWS];
 
 out vec4 FragColor;
 
-float compute_shadow(int shadow_num) 
-{                    
-    vec4 light_space_pos = u_shadow_vps[shadow_num] * vec4(v_world_position, 1.0);
-    vec3 proj_coords = light_space_pos.xyz / light_space_pos.w;
-    proj_coords = (proj_coords + 1) / 2;
-
-	bool outside_shadow = proj_coords.x < 0.0 || proj_coords.x > 1.0 || 
-							proj_coords.y < 0.0 || proj_coords.y > 1.0 ||
-							proj_coords.z < 0.0 || proj_coords.z > 1.0;
-    if (outside_shadow)
-        return 0.0;
-
-    float shadow_closest_depth = texture(u_shadow_maps[shadow_num], proj_coords.xy).x;
-    float current_depth = proj_coords.z;
-    return shadow_closest_depth < (current_depth - u_shadow_biases[shadow_num]) ? 0.0 : 1.0;
-}
-
-float quadratic_attenuation(vec3 light_position)
+void main()
 {
-	float distance = length(light_position);
-	return 1.0 / max(pow(distance, 2), 0.00001);
+	vec2 uv = v_uv;
+	vec4 color = u_color;
+	color *= texture(u_texture, v_uv);
+
+	if (color.a < u_alpha_cutoff)
+		discard;
+
+	vec3 total_accumulation = u_light_ambient;
+
+	int s = 0;
+	for (int i = 0; i < min(u_num_lights, MAX_NUM_LIGHTS); i++) 
+	{
+		int type = u_light_types[i];
+		if (type == NO_LIGHT)
+			continue;
+		
+		vec3 light_position = correct_light_position(u_light_positions[i], v_world_position, u_light_types[i]);
+
+		vec3 accumulation = vec3(1.0);
+
+		accumulation *= compute_phong(light_position, u_camera_position, v_world_position, v_normal, u_shininess);
+		accumulation *= compute_attenuation(light_position, u_light_directions[i], u_light_cos_angles[i], type);
+		accumulation *= compute_shadow(u_shadow_maps[s], u_shadow_vps[s], u_shadow_biases[s], v_world_position, type);
+		accumulation *= compute_intensified_color(u_light_colors[i], u_light_intensities[i]);
+
+		total_accumulation += accumulation;
+
+		if (type != POINT_LIGHT)
+			s++;
+	}
+
+	color.xyz *= total_accumulation;
+	FragColor = color;
 }
 
-float angular_attenuation(vec3 light_position, vec3 light_direction, vec2 cos_angles)
-{
-	float distance = length(light_position);
 
-	vec3 L = normalize(light_position);
-	vec3 D = normalize(light_direction); 
+////////////////////////////////////////////////////////////////////////////////////////////////////
 
-	float cos_min = cos_angles.x;
-	float cos_max = cos_angles.y;
+\forward_light_multi_pass.fs
 
-	float attenuation =  clamp((dot(L, D) - cos_max) / max(cos_min - cos_max, 0.00001), 0.0, 1.0);
-	attenuation *= float(dot(L, D) >= cos_max);
-	attenuation /= max(pow(distance, 2), 0.00001);
-	return attenuation;
-}
+#version 330 core
+
+#include "my_functions"
+
+in vec3 v_position;
+in vec3 v_world_position;
+in vec3 v_normal;
+in vec2 v_uv;
+in vec4 v_color;
+
+uniform vec4 u_color;
+uniform sampler2D u_texture;
+uniform float u_time;
+
+// View
+uniform vec3 u_camera_position;				
+
+// Material
+uniform float u_shininess;			
+
+// Lighting
+uniform vec3 u_light_ambient;
+uniform vec3 u_light_position;
+uniform vec3 u_light_color;
+uniform vec3 u_light_direction;
+uniform float u_light_intensity;
+uniform int u_light_type; 
+uniform vec2 u_light_cos_angle;
+
+out vec4 FragColor;
 
 void main()
 {
 	vec2 uv = v_uv;
 	vec4 color = u_color;
 	color *= texture( u_texture, v_uv );
+	
+	vec3 light_position = correct_light_position(u_light_position, v_world_position, u_light_type);
 
-	vec3 ambient_component = u_light_ambient;
-	vec3 diffuse_component = vec3(0.0);
-	vec3 specular_component = vec3(0.0);
+	vec3 accumulation = vec3(1.0);
 
-	int shadow_num = 0;
+	accumulation *= compute_phong(light_position, u_camera_position, v_world_position, v_normal, u_shininess);
+	accumulation *= compute_attenuation(light_position, u_light_direction, u_light_cos_angle, u_light_type);
+	// accumulation *= compute_shadow(u_shadow_map, u_shadow_vp, u_shadow_bias, v_world_position, u_light_type);
+	accumulation *= compute_intensified_color(u_light_color, u_light_intensity);
 
-	for (int i = 0; i < u_num_lights; i++) 
-	{
-		int type = u_light_types[i];
-		vec3 light_position = u_light_positions[i];
-		vec3 light_direction = u_light_directions[i];
-		vec2 cos_angles = u_light_cos_angles[i];
-		float attenuation = 1.0;
-		float shadow = 1.0;
-
-		if (type == NO_LIGHT)
-			continue;
-
-		if (type == POINT_LIGHT)
-		{	
-			light_position -= v_world_position;
-			attenuation = quadratic_attenuation(light_position);
-		} 
-
-		if (type == SPOT_LIGHT)
-		{  
-			light_position -= v_world_position;
-			attenuation = angular_attenuation(light_position, light_direction, cos_angles);	
-			shadow = compute_shadow(shadow_num++); 
-		}
-
-		if (type == DIRECTIONAL_LIGHT)
-		{	 
-			shadow = compute_shadow(shadow_num++);
-		}
-
-		vec3 L = normalize(light_position);
-		vec3 V = normalize(u_camera_position - v_world_position);
-		vec3 N = normalize(v_normal);
-		vec3 R = normalize(reflect(-L, N));
-		
-		float L_dot_N = clamp(dot(N, L), 0.0, 1.0);
-		float R_dot_V = clamp(dot(R, V), 0.0, 1.0);
-
-		vec3 light_color =  attenuation * u_light_colors[i] * u_light_intensities[i];
-
-		diffuse_component += shadow * light_color * L_dot_N;
-		specular_component += shadow * light_color * pow(R_dot_V, u_shininess);
-	}
-
-	if(color.a < u_alpha_cutoff)
-		discard;
-
-	color.xyz *= ambient_component + diffuse_component + specular_component;
+	color.xyz *= accumulation;
 	FragColor = color;
 }
 

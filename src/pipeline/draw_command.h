@@ -22,6 +22,7 @@ public:
 
 	DrawCommand();
 	DrawCommand(GFX::Mesh* mesh, SCN::Material* material, Matrix44 model);
+	DrawCommand(SCN::Node* node);
 	~DrawCommand();
 
 	bool check();

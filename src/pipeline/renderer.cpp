@@ -20,10 +20,6 @@
 
 using namespace SCN;
 
-//some globals
-GFX::Mesh sphere;
-
-
 Renderer::Renderer(const char* shader_atlas_filename)
 {
 	Vector2 window_size = CORE::getWindowSize();
@@ -44,12 +40,13 @@ Renderer::Renderer(const char* shader_atlas_filename)
 		exit(1);
 	GFX::checkGLErrors();
 
-	sphere.createSphere(1.0f);
-	sphere.uploadToVRAM();
+	this->sphere.createSphere(1.0f);
+	this->sphere.uploadToVRAM();
 
-	this->current_pipeline = RenderPipeline::DEFERRED;
-	this->current_gbuffer = GbufferType::ALBEDO_MAP;
+	this->current_forward_mode = ForwardMode::MULTI_PASS;
+	this->current_pipeline = RenderPipeline::FORWARD;
 	this->deferred_command.init(2 * window_size.x, 2 * window_size.y); // 1024, 768 default
+	this->lighting.init(2 * window_size.x, 2 * window_size.y);
 }
 
 Renderer::~Renderer()
@@ -75,23 +72,22 @@ void Renderer::setupScene()
 	}
 }
 
-// Store Children Prefab Entities
+///////////////////////////////////////////////////////////////////////////////
+// Parsers                                                                   //
+///////////////////////////////////////////////////////////////////////////////
+
+//store children prefab entities
 void Renderer::parseNode(Node* node, Camera* cam)
 {
-	if (!node) {
+	if (!node) 
 		return;
-	}
 
 	if (node->mesh) {
-		DrawCommand draw = DrawCommand(node->mesh,
-			node->material,
-			node->getGlobalMatrix());
-		if (node->material->alpha_mode == NO_ALPHA) {
-			this->draw_command_opaque_list.push_back(draw);
-		}
-		else {
-			this->draw_command_transparent_list.push_back(draw);
-		}
+		DrawCommand draw_command(node);
+		if (node->material->alpha_mode == NO_ALPHA) 
+			this->draw_command_opaque_list.push_back(draw_command);
+		else 
+			this->draw_command_transparent_list.push_back(draw_command);
 	}
 
 	for (Node* child : node->children) {
@@ -108,7 +104,7 @@ void Renderer::parsePrefabs(std::vector<PrefabEntity*> prefab_list, Camera* came
 		this->parseNode(node, camera);
 	}
 
-	// Sort opaque objects from nearest to farthest
+	//sort opaque objects from nearest to farthest
 	std::sort(this->draw_command_opaque_list.begin(), this->draw_command_opaque_list.end(),
 		[&](const DrawCommand& a, const DrawCommand& b) {
 			float distA = (camera->eye - a.model.getTranslation()).length();
@@ -116,7 +112,7 @@ void Renderer::parsePrefabs(std::vector<PrefabEntity*> prefab_list, Camera* came
 			return distA < distB;
 		});
 
-	// Sort transparent objects from farthest to nearest
+	//sort transparent objects from farthest to nearest
 	std::sort(this->draw_command_transparent_list.begin(), this->draw_command_transparent_list.end(),
 		[&](const DrawCommand& a, const DrawCommand& b) {
 			float distA = (camera->eye - a.model.getTranslation()).length();
@@ -131,7 +127,7 @@ void Renderer::parseCameraLights(std::vector<SCN::LightEntity*> light_list)
 		delete camera;
 	}
 	this->camera_light_list.clear();
-	for (LightEntity* light : light_list) {
+	for (SCN::LightEntity* light : light_list) {
 		Camera* camera = light->getCamera();
 		if (camera) {
 			this->camera_light_list.push_back(camera);
@@ -139,8 +135,24 @@ void Renderer::parseCameraLights(std::vector<SCN::LightEntity*> light_list)
 	}
 }
 
-//generate renderables
-void Renderer::parseSceneEntities(SCN::Scene* scene, Camera* camera)
+void Renderer::parseLightVolumes(std::vector<LightEntity*> light_list)
+{
+	for (GFX::Mesh sphere : this->spheres) {
+		sphere.clear();
+	}
+	this->spheres.clear();
+	for (SCN::LightEntity* light : light_list) {
+		if (light->light_type == eLightType::POINT
+			or light->light_type == eLightType::SPOT) {
+			
+			GFX::Mesh sphere;
+			sphere.createSphere(light->max_distance);
+			this->spheres.push_back(sphere);
+		}
+	}
+}
+
+void Renderer::parseSceneEntities(Scene* scene, Camera* camera)
 {
 	this->light_list.clear();
 	this->prefab_list.clear();
@@ -149,52 +161,44 @@ void Renderer::parseSceneEntities(SCN::Scene* scene, Camera* camera)
 		if (!entity->visible) {
 			continue;
 		}
-
-		//store prefab entities
 		if (entity->getType() == eEntityType::PREFAB) {
 			this->prefab_list.push_back((PrefabEntity*)entity);
 			continue;
 		}
-
-		//store light entities
 		if (entity->getType() == eEntityType::LIGHT) {
 			this->light_list.push_back((LightEntity*)entity);
 		}
 	}
 
+
+	std::vector<SCN::LightEntity*> directional_light_list;
+	for (SCN::LightEntity* light : this->light_list) {
+		if (light->light_type == SCN::eLightType::DIRECTIONAL) {
+			directional_light_list.push_back(light);
+		}
+	}
+
 	this->parsePrefabs(this->prefab_list, camera);
-	this->parseCameraLights(this->light_list);
-	this->light_command.parseLights(this->light_list, scene);
-	this->shadow_command.parseShadows(this->camera_light_list, this->shadow_FBOs);
+
+	if (this->current_pipeline == RenderPipeline::LIGHT_VOLUME) {
+		this->parseCameraLights(directional_light_list);
+		this->light_command.parseLights(directional_light_list, scene);
+		this->shadow_command.parseShadows(this->camera_light_list, this->shadow_FBOs);
+	}
+	else {
+		this->parseCameraLights(this->light_list);
+		this->light_command.parseLights(this->light_list, scene);
+		this->shadow_command.parseShadows(this->camera_light_list, this->shadow_FBOs);
+	}
 }
 
-//render renderables 
-void Renderer::renderScene(SCN::Scene* scene, Camera* camera)
-{
-	this->scene = scene;
-	this->setupScene();
-	this->parseSceneEntities(scene, camera);
+///////////////////////////////////////////////////////////////////////////////
+// Renderers                                                                 //
+///////////////////////////////////////////////////////////////////////////////
 
-	for (int i = 0; i < (int)this->camera_light_list.size(); i++) {
-		Camera* camera_light = this->camera_light_list.at(i);
-		GFX::FBO* shadow_fbo = this->shadow_FBOs.at(i);
-		this->renderShadow(camera_light, shadow_fbo);
-	}
-
-	switch (this->current_pipeline) {
-	case RenderPipeline::FORWARD:
-		this->renderForward();
-		break;
-	case RenderPipeline::DEFERRED:
-		this->renderDeferred();
-		this->renderDeferredLightingPass();
-		break;
-	}
-
-}
 
 //renders the sky box of the scene
-void Renderer::renderSkybox(GFX::Texture* cubemap) const
+void Renderer::renderSkybox(GFX::Texture* cubemap)
 {
 	Camera* camera = Camera::current;
 
@@ -224,7 +228,7 @@ void Renderer::renderSkybox(GFX::Texture* cubemap) const
 	shader->setUniform("u_texture", cubemap, 0);
 	shader->setUniform("u_model", m);
 
-	sphere.render(GL_TRIANGLES);
+	this->sphere.render(GL_TRIANGLES);
 
 	shader->disable();
 
@@ -234,6 +238,7 @@ void Renderer::renderSkybox(GFX::Texture* cubemap) const
 }
 
 //renders a mesh given its transform and material
+/*
 void Renderer::renderMeshWithMaterial(DrawCommand draw_command) const
 {
 	Camera* camera = Camera::current;
@@ -244,53 +249,78 @@ void Renderer::renderMeshWithMaterial(DrawCommand draw_command) const
 	glEnable(GL_DEPTH_TEST);
 	assert(glGetError() == GL_NO_ERROR);
 
-	GFX::Shader* shader = GFX::Shader::Get("forward_light_pass");
+	GFX::Shader* shader = GFX::Shader::Get("forward_light_single_pass");
 	if (!shader)
 		return;
 	shader->enable();
 
 	draw_command.material->bind(shader);
 
-	//upload scene properties
 	this->light_command.uploadUniforms(shader);
 	this->shadow_command.uploadUniforms(shader);
 	shader->setUniform("u_shininess", draw_command.material->shininess);
 	shader->setUniform("u_model", draw_command.model);
 	shader->setUniform("u_viewprojection", camera->viewprojection_matrix);
 	shader->setUniform("u_camera_position", camera->eye);
+	shader->setUniform("u_time", (float)getTime());
 
-	//upload time, for cool shader effects
-	float time = getTime();
-	shader->setUniform("u_time", time);
-
-	//render just the verticies as a wireframe
 	if (this->render_wireframe)
 		glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
 
-	//do the draw call that renders the mesh into the screen
 	draw_command.mesh->render(GL_TRIANGLES);
 
-	//disable shader
 	shader->disable();
 
-	//set the render state as it was before to avoid problems with future renders
 	glDisable(GL_BLEND);
 	glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 }
+*/
 
-//renders the meshes from the point of view of the light camera in textures menu
-void Renderer::renderShadow(Camera* light_camera, GFX::FBO* shadow_fbo) const
+void Renderer::renderShaderMultiPass(Camera* camera, DrawCommand draw_command) const
 {
-	shadow_fbo->bind();
-	glColorMask(false, false, false, false);
-	glClear(GL_DEPTH_BUFFER_BIT);
-	
-	for (DrawCommand draw_command : this->draw_command_opaque_list) {
-		this->renderShader(light_camera, draw_command, "plain");
+	if (draw_command.check() || !camera)
+		return;
+
+	glEnable(GL_DEPTH_TEST);
+	assert(glGetError() == GL_NO_ERROR);
+
+	GFX::Shader* shader = GFX::Shader::Get("forward_light_multi_pass");
+	if (!shader)
+		return;
+	shader->enable();
+
+	draw_command.material->bind(shader);
+
+	glDepthFunc(GL_LEQUAL);
+	glBlendFunc(GL_SRC_ALPHA, GL_ONE);
+
+	for (int i = 0; i < this->light_command.num_lights; i++) {
+
+		if (i == 0)
+			glDisable(GL_BLEND);
+		else 
+			glEnable(GL_BLEND);
+
+		this->light_command.uploadUniform(shader, i);
+		shader->setUniform("u_shininess", draw_command.material->shininess);
+		shader->setUniform("u_model", draw_command.model);
+		shader->setUniform("u_viewprojection", camera->viewprojection_matrix);
+		shader->setUniform("u_camera_position", camera->eye);
+		shader->setUniform("u_time", (float)getTime());
+
+		draw_command.mesh->render(GL_TRIANGLES);
 	}
 
-	glColorMask(true, true, true, true);
-	shadow_fbo->unbind();
+	if (this->render_wireframe)
+		glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+
+	shader->disable();
+
+	glDisable(GL_BLEND);
+	glDepthFunc(GL_LESS);
+	glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+
+
 }
 
 void Renderer::renderShader(Camera* camera, DrawCommand draw_command, const char* shader_name) const
@@ -308,12 +338,18 @@ void Renderer::renderShader(Camera* camera, DrawCommand draw_command, const char
 
 	draw_command.material->bind(shader);
 
+	this->light_command.uploadUniforms(shader);
 	this->shadow_command.uploadUniforms(shader);
+	shader->setUniform("u_shininess", draw_command.material->shininess);
 	shader->setUniform("u_model", draw_command.model);
 	shader->setUniform("u_viewprojection", camera->viewprojection_matrix);
 	shader->setUniform("u_camera_position", camera->eye);
+	shader->setUniform("u_time", (float)getTime());
 
 	draw_command.mesh->render(GL_TRIANGLES);
+
+	if (this->render_wireframe)
+		glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
 
 	shader->disable();
 
@@ -321,34 +357,52 @@ void Renderer::renderShader(Camera* camera, DrawCommand draw_command, const char
 	glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 }
 
-void Renderer::renderForward() const
+//renders the meshes from the point of view of the light camera in textures menu
+void Renderer::renderShadow(Camera* light_camera, GFX::FBO* shadow_fbo) const
+{
+	shadow_fbo->bind();
+	glColorMask(false, false, false, false);
+	glClear(GL_DEPTH_BUFFER_BIT);
+
+	for (DrawCommand draw_command : this->draw_command_opaque_list) {
+		this->renderShader(light_camera, draw_command, "plain");
+	}
+
+	glColorMask(true, true, true, true);
+	shadow_fbo->unbind();
+}
+
+void Renderer::renderForward()
 {
 	//set the clear color (the background color)
-	glClearColor(scene->background_color.x,
+	glClearColor(
+		scene->background_color.x,
 		scene->background_color.y,
 		scene->background_color.z,
-		1.0);
+		1.0
+	);
 
 	//clear the color and the depth buffer
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 	GFX::checkGLErrors();
 
-	//render skybox
 	if (this->skybox_cubemap) {
 		this->renderSkybox(this->skybox_cubemap);
 	}
 
-	//render opaque entities
 	for (DrawCommand draw_command : this->draw_command_opaque_list) {
-		this->renderMeshWithMaterial(draw_command);
+		if (this->current_forward_mode == ForwardMode::SINGLE_PASS) 
+			this->renderShader(Camera::current, draw_command, "forward_light_single_pass");
+		else 
+			this->renderShaderMultiPass(Camera::current, draw_command);
 	}
 
 	glEnable(GL_BLEND);
 	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
-	//render transparent entities
 	for (DrawCommand draw_command : this->draw_command_transparent_list) {
-		this->renderMeshWithMaterial(draw_command);
+		if (this->current_forward_mode == ForwardMode::SINGLE_PASS)
+			this->renderShader(Camera::current, draw_command, "forward_light_single_pass");
 	}
 
 	glDisable(GL_BLEND);
@@ -358,10 +412,12 @@ void Renderer::renderDeferred()
 {
 	this->deferred_command.bind();
 
-	glClearColor(scene->background_color.x,
+	glClearColor(
+		scene->background_color.x,
 		scene->background_color.y,
 		scene->background_color.z,
-		1.0);
+		1.0
+	);
 
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 	GFX::checkGLErrors();
@@ -385,16 +441,16 @@ void Renderer::renderDeferredLightingPass() const {
 
 	Camera* camera = Camera::current;
 
-	// 2. Get the full-screen quad mesh
+	//get the full-screen quad mesh
 	GFX::Mesh* quad = GFX::Mesh::getQuad();
 
-	// 3. Enable the lighting shader
+	//enable the lighting shader
 	GFX::Shader* shader = GFX::Shader::Get("deferred_light_pass");
 	if (!shader) 
 		return;
 	shader->enable();
 
-	// 4. Send light uniforms
+	//send light uniforms
 	this->light_command.uploadUniforms(shader);
 	this->shadow_command.uploadUniforms(shader);
 	shader->setUniform("u_camera_position", camera->eye);
@@ -403,14 +459,125 @@ void Renderer::renderDeferredLightingPass() const {
 	Vector2 window_size = CORE::getWindowSize();
 	shader->setUniform("u_res_inv", vec2(1.0f / window_size.x, 1.0f / window_size.y));
 
-	// 5. Bind G-buffer textures
+	//send geometric buffer textures
 	this->deferred_command.uploadTextures(shader);
 
-	// 6. Render the full-screen quad
+	//render the full-screen quad
 	quad->render(GL_TRIANGLES);
 
-	// 7. Disable the shader
+	//disable the shader
 	shader->disable();
+}
+
+void Renderer::renderLightVolumes()
+{
+	glDisable(GL_BLEND);
+
+	glClearColor(
+		scene->background_color.x,
+		scene->background_color.y,
+		scene->background_color.z,
+		1.0
+	);
+
+	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+	GFX::checkGLErrors();
+
+	if (this->skybox_cubemap) {
+		this->renderSkybox(this->skybox_cubemap);
+	}
+
+	for (DrawCommand draw_command : this->draw_command_opaque_list) {
+		this->renderShader(Camera::current, draw_command, "forward_light_single_pass");
+	}
+
+	glEnable(GL_BLEND);
+	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+
+	for (DrawCommand draw_command : this->draw_command_transparent_list) {
+		this->renderShader(Camera::current, draw_command, "forward_light_single_pass");
+	}
+
+	glDisable(GL_BLEND);
+
+
+	this->deferred_command.gbuffer_FBO->depth_texture->copyTo(lighting.gbuffer_FBO->depth_texture);
+
+	lighting.bind();
+
+	// Set the OpenGL config
+	glDepthFunc(GL_GREATER);
+	glDepthMask(GL_FALSE);
+	glBlendFunc(GL_ONE, GL_ONE);
+	glEnable(GL_BLEND);
+	glFrontFace(GL_CW);
+
+	for (SCN::LightEntity* light : this->light_list) 
+	{
+		if (light->light_type == eLightType::DIRECTIONAL 
+			or light->light_type == eLightType::NO_LIGHT)
+			continue;
+
+		Vector3 light_position = light->root.getGlobalMatrix().getTranslation();
+
+		Matrix44 model;
+		model.setTranslation(light_position.x, light_position.y, light_position.z);
+		model.scale(light->max_distance, light->max_distance, light->max_distance); 
+
+		GFX::Mesh sphere;
+		sphere.createSphere(light->max_distance);
+
+		GFX::Shader* shader = GFX::Shader::Get("light_volumes");
+		if (!shader)
+			return;
+		shader->enable();
+
+		shader->setUniform("u_model", model);
+		shader->setUniform("u_light_position", light_position);
+		shader->setUniform("u_light_color", light->color);
+		shader->setUniform("u_light_max_distance", light->max_distance);
+
+		sphere.render(GL_TRIANGLES);
+	}
+
+	// Return the OpenGL config to what it was
+	glDepthFunc(GL_LESS);            
+	glDepthMask(GL_TRUE);            
+	glBlendFunc(GL_ONE, GL_ZERO);    
+	glDisable(GL_BLEND);             
+	glFrontFace(GL_CCW);             
+
+
+	lighting.unbind();
+
+	lighting.gbuffer_FBO->color_textures[0]->toViewport();
+}
+
+void Renderer::renderScene(Scene* scene, Camera* camera)
+{
+	this->scene = scene;
+	this->setupScene();
+	this->parseSceneEntities(scene, camera);
+
+	for (int i = 0; i < (int)this->camera_light_list.size(); i++) {
+		Camera* camera_light = this->camera_light_list.at(i);
+		GFX::FBO* shadow_fbo = this->shadow_FBOs.at(i);
+		this->renderShadow(camera_light, shadow_fbo);
+	}
+
+	switch (this->current_pipeline) {
+	case RenderPipeline::FORWARD:
+		this->renderForward();
+		break;
+	case RenderPipeline::DEFERRED:
+		this->renderDeferred();
+		this->renderDeferredLightingPass();
+		break;
+	case RenderPipeline::LIGHT_VOLUME:
+		this->renderDeferred();
+		this->renderLightVolumes();
+		break;
+	}
 }
 
 #ifndef SKIP_IMGUI
@@ -442,24 +609,20 @@ void Renderer::showUI()
 	static int selected_mode = (int)this->current_pipeline;
 	ImGui::Separator();
 	ImGui::Text("Render Mode Selector\n(0 forward, 1 deferred)");
-	ImGui::SliderInt("Mode", &selected_mode, 0, 1);
+	ImGui::SliderInt("Mode", &selected_mode, 0, 2);
 	this->current_pipeline = (RenderPipeline)selected_mode;
 
-	//select deferred texture
-	/*if ((RenderPipeline)selected_mode == RenderPipeline::DEFERRED) {
-		static int deferred_texture = (int)this->current_gbuffer;
-		int num_textures = this->deferred_command.max_textures;
-		ImGui::Separator();
-		ImGui::Text("Deferred Texture Selector\n");
-		ImGui::SliderInt("Texture", &deferred_texture, 0, num_textures - 1);
-		this->current_gbuffer = (GbufferType)deferred_texture;
-	}*/
+	//forward mode UI
+	static int seleceted_forward_mode = (int)this->current_forward_mode;
+	ImGui::Separator();
+	ImGui::Text("Forward Mode Selector\n(0 single, 1 multi)");
+	ImGui::SliderInt("Forward Mode", &seleceted_forward_mode, 0, 1);
+	this->current_forward_mode = (ForwardMode)seleceted_forward_mode;
 
-	//Ambient Light Slider
+	//ambient Light Slider
 	ImGui::SliderFloat("Ambient R", &this->scene->ambient_light.x, 0.0f, 1.0f);
 	ImGui::SliderFloat("Ambient G", &this->scene->ambient_light.y, 0.0f, 1.0f);
 	ImGui::SliderFloat("Ambient B", &this->scene->ambient_light.z, 0.0f, 1.0f);
-
 }
 
 #else

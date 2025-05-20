@@ -11,6 +11,13 @@ DrawCommand::DrawCommand(GFX::Mesh* mesh, SCN::Material* material, Matrix44 mode
 	this->model = model;
 }
 
+DrawCommand::DrawCommand(SCN::Node* node)
+{
+	this->mesh = node->mesh;
+	this->material = node->material;
+	this->model = node->getGlobalMatrix();
+}
+
 DrawCommand::~DrawCommand()
 {
 }
