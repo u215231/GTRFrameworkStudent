@@ -29,6 +29,11 @@ namespace SCN {
 		DEFERRED = 1
 	};
 
+	enum class Lighting_Type {
+		PHONG = 0,
+		PBR = 1
+	};
+
 	//this class is in charge of rendering anything in our system.
 	//separating the render from anything else makes the code cleaner
 	class Renderer
@@ -53,6 +58,7 @@ namespace SCN {
 		RenderPipeline current_pipeline; //lab4
 		GbufferType current_gbuffer; //lab4
 		DeferredCommand deferred_command; //lab4
+		Lighting_Type lighting_type;
 
 		//updated every frames
 		Renderer(const char* shaders_atlas_filename);

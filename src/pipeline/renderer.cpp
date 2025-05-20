@@ -48,6 +48,7 @@ Renderer::Renderer(const char* shader_atlas_filename)
 	sphere.uploadToVRAM();
 
 	this->current_pipeline = RenderPipeline::DEFERRED;
+	this->lighting_type = Lighting_Type::PBR;
 	this->current_gbuffer = GbufferType::ALBEDO_MAP;
 	this->deferred_command.init(2 * window_size.x, 2 * window_size.y); // 1024, 768 default
 }
@@ -258,6 +259,7 @@ void Renderer::renderMeshWithMaterial(DrawCommand draw_command) const
 	shader->setUniform("u_model", draw_command.model);
 	shader->setUniform("u_viewprojection", camera->viewprojection_matrix);
 	shader->setUniform("u_camera_position", camera->eye);
+	shader->setUniform("u_lighting_type", static_cast<int>(this->lighting_type));
 
 	//upload time, for cool shader effects
 	float time = getTime();
@@ -402,6 +404,7 @@ void Renderer::renderDeferredLightingPass() const {
 
 	Vector2 window_size = CORE::getWindowSize();
 	shader->setUniform("u_res_inv", vec2(1.0f / window_size.x, 1.0f / window_size.y));
+	shader->setUniform("u_lighting_type", static_cast<int>(this->lighting_type));
 
 	// 5. Bind G-buffer textures
 	this->deferred_command.uploadTextures(shader);
@@ -441,9 +444,16 @@ void Renderer::showUI()
 	//render mode UI
 	static int selected_mode = (int)this->current_pipeline;
 	ImGui::Separator();
-	ImGui::Text("Render Mode Selector\n(0 forward, 1 deferred)");
+	ImGui::Text("Render Mode Selector\n(0 Forward, 1 Deferred)");
 	ImGui::SliderInt("Mode", &selected_mode, 0, 1);
 	this->current_pipeline = (RenderPipeline)selected_mode;
+
+	//Lighting type UI
+	static int lighting = (int)this->lighting_type;
+	ImGui::Separator();
+	ImGui::Text("Lighting Type Selector\n(0 Phong, 1 PBR)");
+	ImGui::SliderInt("Type", &lighting, 0, 1);
+	this->lighting_type = (Lighting_Type)lighting;
 
 	//select deferred texture
 	/*if ((RenderPipeline)selected_mode == RenderPipeline::DEFERRED) {
@@ -456,6 +466,7 @@ void Renderer::showUI()
 	}*/
 
 	//Ambient Light Slider
+	ImGui::Separator();
 	ImGui::SliderFloat("Ambient R", &this->scene->ambient_light.x, 0.0f, 1.0f);
 	ImGui::SliderFloat("Ambient G", &this->scene->ambient_light.y, 0.0f, 1.0f);
 	ImGui::SliderFloat("Ambient B", &this->scene->ambient_light.z, 0.0f, 1.0f);
