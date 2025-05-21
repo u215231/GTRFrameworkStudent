@@ -21,4 +21,5 @@ public:
 
 	void parseShadows(std::vector<Camera*> camera_light_list, std::vector<GFX::FBO*> shadow_FBOs);
 	void uploadUniforms(GFX::Shader* shader) const;
+	void uploadUniform(GFX::Shader* shader, int s) const;
 };

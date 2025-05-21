@@ -70,6 +70,10 @@ namespace SCN {
 		DeferredCommand lighting;
 		std::vector<GFX::Mesh> spheres; //lab4
 
+		bool is_cubemap_reflections;
+		GFX::Texture* environment_cubemap;
+		GFX::Mesh small_sphere;
+
 		//updated every frames
 		Renderer(const char* shaders_atlas_filename);
 		~Renderer();
@@ -86,10 +90,9 @@ namespace SCN {
 
 		//renderers of the elements of the scene
 		void renderSkybox(GFX::Texture* cubemap);
-		void renderMeshWithMaterial(DrawCommand draw_command) const;
+		void renderShaderSinglePass(Camera* camera, DrawCommand draw_command, const char* shader_name) const;
+		void renderShaderMultiPass(Camera* camera, DrawCommand draw_command, const char* shader_name) const;
 		void renderShadow(Camera* light_camera, GFX::FBO* shadow_fbo) const;
-		void renderShaderMultiPass(Camera* camera, DrawCommand draw_command) const;
-		void renderShader(Camera* camera, DrawCommand draw_command, const char* shader_name) const;
 		void renderForward();
 		void renderDeferred();
 		void renderDeferredLightingPass() const;

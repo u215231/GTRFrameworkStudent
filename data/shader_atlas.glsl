@@ -6,44 +6,36 @@ skybox basic.vs skybox.fs
 depth quad.vs depth.fs
 multi basic.vs multi.fs
 plain basic.vs plain.fs
+        
 gbuffer_fill basic.vs gbuffer_fill.fs
 deferred_light_pass quad.vs deferred_light_pass.fs
+
 forward_light_single_pass basic.vs forward_light_single_pass.fs
 forward_light_multi_pass basic.vs forward_light_multi_pass.fs
+environment_reflections basic.vs environment_reflections.fs
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
 \my_functions
 
+// Lighting types
+#define PHONG 0 
+#define PYSICAL_BASED_RENDER 1
+
+// Light types
 #define NO_LIGHT 0
 #define POINT_LIGHT 1
 #define SPOT_LIGHT 2
 #define DIRECTIONAL_LIGHT 3
+
 #define MAX_NUM_LIGHTS 10
 #define MAX_NUM_SHADOWS 10
 
-vec3 correct_light_position(vec3 light_position, vec3 world_position, int type);
-float compute_phong(vec3 light_position, vec3 camera_position, vec3 world_position, vec3 normal, float shininess);
-vec3 compute_intensified_color(vec3 light_color, float light_intensity);
-float quadratic_attenuation(vec3 light_position);
-float angular_attenuation(vec3 light_position, vec3 light_direction, vec2 light_cos_angle);
-float compute_attenuation(vec3 light_position, vec3 light_direction, vec2 light_cos_angle, int type);
-float compute_shadow(sampler2D shadow_map, mat4 shadow_viewprojection, float shadow_bias, vec3 world_position, int type); 
+const float PI = 3.14159265359;
 
 vec3 correct_light_position(vec3 light_position, vec3 world_position, int type)
 {
 	 return light_position - world_position * float(type != DIRECTIONAL_LIGHT);
-}
-
-float compute_phong(vec3 light_position, vec3 camera_position, vec3 world_position, vec3 normal, float shininess)
-{
-	vec3 L = normalize(light_position);
-	vec3 V = normalize(camera_position - world_position);
-	vec3 N = normalize(normal);
-	vec3 R = normalize(reflect(-L, N));
-	float diffuse_component = clamp(dot(N, L), 0.0, 1.0);
-	float specular_component = pow(clamp(dot(R, V), 0.0, 1.0), shininess);
-	return diffuse_component + specular_component;
 }
 
 vec3 compute_intensified_color(vec3 light_color, float light_intensity)
@@ -100,21 +92,67 @@ float compute_shadow(sampler2D shadow_map, mat4 shadow_viewprojection, float sha
     return shadow_closest_depth < (current_depth - shadow_bias) ? 0.0 : 1.0;
 }
 
-////////////////////////////////////////////////////////////////////////////////////////////////////
+vec3 compute_phong(vec3 light_position, vec3 camera_position, 
+				   vec3 world_position, vec3 normal, float shininess)
+{
+	vec3 L = normalize(light_position);
+	vec3 V = normalize(camera_position - world_position);
+	vec3 N = normalize(normal);
+	vec3 R = normalize(reflect(-L, N));
+	float diffuse_component = clamp(dot(N, L), 0.0, 1.0);
+	float specular_component = pow(clamp(dot(R, V), 0.0, 1.0), shininess);
+	return vec3(diffuse_component + specular_component);
+}
 
-\PBR_functions
-
-const float PI = 3.14159265359;
-
-vec3 comp_F(vec3 F0, float H_dot_V){
+vec3 comp_F(vec3 F0, float H_dot_V)
+{
 	return F0 + (vec3(1.0) - F0)*pow((1.0 - H_dot_V),5.0);
 }
-float comp_D(float alpha_sq, float N_dot_H){
+float comp_D(float alpha_sq, float N_dot_H)
+{
 	return alpha_sq / (PI * pow(pow(N_dot_H,2.0) * (alpha_sq - 1.0) + 1.0, 2.0));
 }
 
-float comp_G(float N_dot_V, float alpha){
+float comp_G(float N_dot_V, float alpha)
+{
 	return N_dot_V / (N_dot_V * (1.0 - alpha/2.0) + alpha/2.0);
+}
+
+vec3 compute_pbr(vec3 light_position, vec3 camera_position, 
+				 vec3 world_position, vec3 normal, float roughness, vec3 F0)
+{
+	vec3 L = normalize(light_position);
+	vec3 V = normalize(camera_position - world_position);
+	vec3 N = normalize(normal);
+	vec3 R = normalize(reflect(-L, N));
+	vec3 H = normalize(V + L);
+
+	float rp = clamp(roughness, 0.0, 1.0);
+	float alpha = rp * rp;
+	float alpha_sq = pow(alpha, 2.0);
+
+	float N_dot_L = clamp(dot(N, L), 0.0, 1.0);
+	float N_dot_V = clamp(dot(N, V), 0.0, 1.0);
+	float H_dot_V = clamp(dot(H, V), 0.0, 1.0);
+	float N_dot_H = clamp(dot(N, H), 0.0, 1.0);
+
+	vec3 fresnel  = comp_F(F0, H_dot_V);
+	float distribution  = comp_D(alpha_sq, N_dot_H);
+	float geometry = comp_G(N_dot_V, alpha);
+
+	vec3 diffuse_component = N_dot_L * vec3(1.0);
+	float denom = max((4.0 * N_dot_L * N_dot_V), 0.0001);
+	vec3 specular_component = (fresnel * distribution * geometry) / denom;
+
+	return (diffuse_component + specular_component) * N_dot_L;
+}
+
+vec3 compute_lighting(vec3 light_position, vec3 camera_position, vec3 world_position,
+					  vec3 normal, float shininess, float roughness, vec3 F0, int lighting_type)
+{
+	if (lighting_type == PHONG) 
+		return compute_phong(light_position, camera_position, world_position, normal, shininess);
+	return compute_pbr(light_position, camera_position, world_position, normal, roughness, F0);
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -385,14 +423,13 @@ in vec4 v_color;
 uniform sampler2D u_albedo_texture;
 uniform sampler2D u_metallic_roughness_texture;
 uniform vec4 u_color;
-//uniform sampler2D u_texture;
 
 uniform mat4 u_model;
 uniform mat4 u_viewprojection;
 uniform vec3 u_camera_position;
 
-layout(location = 0) out vec4 gbuffer_albedo_roughness;
-layout(location = 1) out vec4 gbuffer_normal_metalness;
+layout(location = 0) out vec4 gbuffer_albedo_roughness_map;
+layout(location = 1) out vec4 gbuffer_normal_metalness_map;
 layout(location = 2) out vec4 gbuffer_position_map;
 layout(location = 3) out vec4 gbuffer_shadow_map;
 
@@ -414,24 +451,22 @@ float merge_shadow_maps(int num_shadows, vec3 world_position)
 	return merged_shadow;
 }
 
-
 void main()
 {
-	vec3 albedo_srgb = texture(u_albedo_texture, v_uv).rgb;
-	vec3 albedo = pow(albedo_srgb, vec3(2.2)); // convert sRGB to linear
-
+	vec3 albedo = texture(u_albedo_texture, v_uv).rgb;
 	vec3 orm = texture(u_metallic_roughness_texture, v_uv).rgb;
 	float roughness = orm.g;
 	float metalness = orm.b;
+	vec3 normal = (1.0 + normalize(v_normal)) / 2.0;
+	vec3 position = v_world_position;
+	vec3 shadow = vec3(merge_shadow_maps(u_num_shadows, v_world_position));
 
-	vec3 normal = normalize(v_normal);
-	vec3 encoded_normal = normal * 0.5 + 0.5;
-
-	gbuffer_albedo_roughness = vec4(albedo, roughness);
-	gbuffer_normal_metalness = vec4(encoded_normal, metalness);
-	gbuffer_position_map     = vec4(v_world_position, 1.0);
-	gbuffer_shadow_map       = vec4(vec3(merge_shadow_maps(u_num_shadows, v_world_position)), 1.0);
+	gbuffer_albedo_roughness_map = vec4(albedo, roughness);
+	gbuffer_normal_metalness_map = vec4(normal, metalness);
+	gbuffer_position_map = vec4(position, 1.0);
+	gbuffer_shadow_map = vec4(shadow, 1.0);
 }
+
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -440,7 +475,6 @@ void main()
 #version 330 core
 
 #include "my_functions"
-#include "PBR_functions"
 
 in vec2 v_uv;
 
@@ -458,7 +492,6 @@ uniform vec2 u_res_inv;
 
 // Material
 const float shininess = 20.0;
-
 
 // Lighting
 uniform int u_num_lights;
@@ -494,162 +527,55 @@ void main()
 	vec4 albedo_rough = texture(u_gbuffer_color, uv);
 	vec3 albedo = albedo_rough.rgb;
 	float roughness = albedo_rough.a;
+	vec4 color = vec4(albedo, 1.0);
 
 	vec4 normal_metal = texture(u_gbuffer_normal, uv);
 	float metalness = normal_metal.a;
-	vec3 normal = normalize(normal_metal.rgb * 2.0 - 1.0);
-
-	vec3 position = texture(u_gbuffer_position, uv).xyz;
-	float shadow = texture(u_gbuffer_shadow, uv).r;
-    float depth = texture(u_gbuffer_depth, uv).r;
-
-	vec4 color = vec4(albedo, 1.0);
-
-	if (normal == vec3(0.0))
+	vec3 normal_encoded = normal_metal.rgb;
+	vec3 normal = normal_encoded * 2.0 - 1.0;
+	if (normal_encoded == vec3(0.0))
 	{
 		FragColor = color;
 		return;
 	}
 
+	vec3 F0 = mix(vec3(0.04), albedo, metalness);
+
+	vec3 position = texture(u_gbuffer_position, uv).xyz;
+	float shadow = texture(u_gbuffer_shadow, uv).r;
+    
+	float depth = texture(u_gbuffer_depth, uv).r;
 	float depth_clip = depth * 2.0 - 1.0;
 	vec4 clip_coords = vec4( uv_clip.x, uv_clip.y, depth_clip, 1.0);
 	vec4 not_norm_world_pos = u_inv_vp_mat * clip_coords;
 	vec3 world_position = not_norm_world_pos.xyz / not_norm_world_pos.w;
+	
+	vec3 total_accumulation = u_light_ambient;
 
-	int shadow_num = 0;
-	shadow *= pow(2, u_num_shadows) - 1.0;
-
-	vec3 ambient_component = u_light_ambient;
-	vec3 diffuse_component = vec3(0.0);
-	vec3 specular_component = vec3(0.0);
-
-	if (u_lighting_type == 0)
+	int s = 0;
+	for (int i = 0; i < u_num_lights && i < MAX_NUM_LIGHTS; ++i) 
 	{
-		vec3 normal = texture(u_gbuffer_normal, uv).xyz;
-
-		for (int i = 0; i < u_num_lights && i < MAX_NUM_LIGHTS; ++i) 
-		{
-			int type = u_light_types[i];
-			vec3 light_position = u_light_positions[i];
-			vec3 light_direction = u_light_directions[i];
-			vec2 cos_angles = u_light_cos_angles[i];
-			float attenuation = 1.0;
-			float correct_shadow = 1.0;
-
-			if (type == NO_LIGHT)
-			{	
-				continue;
-			}
-
-			if (type == POINT_LIGHT) 
-			{ 
-				light_position -= world_position;
-				attenuation = quadratic_attenuation(light_position);
-			}
+		if (u_light_types[i] == NO_LIGHT)
+			continue;
 		
-			if (type == SPOT_LIGHT) 
-			{ 
-				light_position -= world_position;
-				attenuation = angular_attenuation(light_position, light_direction, cos_angles);	
+		vec3 light_position = correct_light_position(u_light_positions[i], world_position, u_light_types[i]);
 
-				correct_shadow = mod(int(shadow) / int(pow(2, shadow_num)), 2);
-				shadow_num++;
-			}
+		vec3 accumulation = vec3(1.0);
+		accumulation *= compute_attenuation(light_position, u_light_directions[i], u_light_cos_angles[i], u_light_types[i]);
+		accumulation *= unmerge_shadow_map(u_num_shadows, s, shadow, u_light_types[i]);
+		accumulation *= compute_intensified_color(u_light_colors[i], u_light_intensities[i]);
+		accumulation *= compute_lighting(light_position, u_camera_position, world_position, 
+										 normal, shininess, roughness, F0, u_lighting_type);
 		
-			if (type == DIRECTIONAL_LIGHT)
-			{
-				correct_shadow = mod(int(shadow) / int(pow(2, shadow_num)), 2);
-				shadow_num++;
-			}
+		total_accumulation += accumulation;
 
-			vec3 L = normalize(light_position);
-			vec3 V = normalize(u_camera_position - world_position);
-			vec3 N = normalize(normal * 2.0 - 1.0);
-			vec3 R = normalize(reflect(-L, N));
-		
-			float L_dot_N = clamp(dot(N, L), 0.0, 1.0);
-			float R_dot_V = clamp(dot(R, V), 0.0, 1.0);
-
-
-			vec3 light_color = attenuation * u_light_colors[i] * u_light_intensities[i];
-			diffuse_component += correct_shadow * light_color * L_dot_N;
-			specular_component += correct_shadow * light_color * pow(R_dot_V, shininess);
-		}
-		
-		color.xyz *= ambient_component + diffuse_component + specular_component;
-		FragColor = color;
+		if (u_light_types[i] != POINT_LIGHT)  
+			s++;
 	}
-	else if (u_lighting_type == 1)
-	{
-		vec3 directLighting = vec3(0.0);
 
-		vec3 F0 = mix(vec3(0.04), albedo, metalness);
-
-		for (int i = 0; i < u_num_lights; i++) 
-		{
-			int type = u_light_types[i];
-			vec3 light_position = u_light_positions[i];
-			vec3 light_direction = u_light_directions[i];
-			vec2 cos_angles = u_light_cos_angles[i];
-			float attenuation = 1.0;
-			float correct_shadow = 1.0;
-
-			if (type == NO_LIGHT)
-				continue;
-
-			if (type == POINT_LIGHT)
-			{	
-				light_position -= world_position;
-				attenuation = quadratic_attenuation(light_position);
-			} 
-
-			if (type == SPOT_LIGHT)
-			{  
-				light_position -= world_position;
-				attenuation = angular_attenuation(light_position, light_direction, cos_angles);	
-
-				correct_shadow = mod(int(shadow) / int(pow(2, shadow_num)), 2);
-				shadow_num++; 
-			}
-
-			if (type == DIRECTIONAL_LIGHT)
-			{	 
-				correct_shadow = mod(int(shadow) / int(pow(2, shadow_num)), 2);
-				shadow_num++;
-			}
-
-			vec3 L = normalize(light_position);
-			vec3 V = normalize(u_camera_position - world_position);
-			vec3 N = normal;
-			vec3 R = normalize(reflect(-L, N));
-			vec3 H = normalize(V+L);
-
-			float rp = clamp(roughness, 0.0, 1.0);
-			float alpha = rp*rp;
-			float alpha_sq = pow(alpha,2.0);
-
-			float N_dot_L = clamp(dot(N, L), 0.0, 1.0);
-			float N_dot_V = clamp(dot(N,V), 0.0, 1.0);
-			float H_dot_V = clamp(dot(H,V), 0.0, 1.0);
-			float N_dot_H = clamp(dot(N,H), 0.0, 1.0);
-
-			vec3 fresnel  = comp_F(F0, H_dot_V);
-			float distribution  = comp_D(alpha_sq, N_dot_H);
-			float geometry = comp_G(N_dot_V, alpha);
-
-			vec3 light_color =  attenuation * u_light_colors[i];
-			diffuse_component = correct_shadow * light_color * N_dot_L;
-			float denom = max((4.0 * N_dot_L * N_dot_V), 0.0001);
-			specular_component = correct_shadow*((fresnel * distribution * geometry) / denom);
-
-			directLighting += (diffuse_component + specular_component) * u_light_intensities[i] * N_dot_L;
-		}
-
-		color.xyz *=  directLighting;    //diffuse_component + specular_component;
-		FragColor = color;
-	}
+	color.xyz *= total_accumulation;  
+	FragColor = color;
 }
-
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -657,7 +583,6 @@ void main()
 
 #version 330 core
 
-#include "PBR_functions"
 #include "my_functions"
 
 in vec3 v_position;
@@ -708,145 +633,37 @@ void main()
 	float metalness = ao_rough_metal.b;
 	vec3 albedo_srgb = texture(u_albedo_texture, v_uv).rgb;
 	vec3 albedo = pow(albedo_srgb, vec3(2.2)); //convert sRGB to linear
+	vec3 F0 = mix(vec3(0.04), albedo, metalness);
 
-	vec2 uv = v_uv;
-	vec4 color = u_color;
-	color *= texture( u_albedo_texture, v_uv );
+	vec4 color = u_color * texture(u_albedo_texture, v_uv );
+	if (color.a < u_alpha_cutoff)
+		discard;
 
+	vec3 total_accumulation = u_light_ambient;
 
-	vec3 diffuse_component = vec3(0.0);
-	vec3 specular_component = vec3(0.0);
-	int shadow_num = 0;
-
-	if (u_lighting_type == 0)
+	int s = 0; 
+	for (int i = 0; i < u_num_lights; i++) 
 	{
-		vec3 ambient_component = u_light_ambient;
+		if (u_light_types[i] == NO_LIGHT)
+			continue;
 
-		int shadow_num = 0; 
+		vec3 light_position = correct_light_position(u_light_positions[i], v_world_position, u_light_types[i]);
 
-		for (int i = 0; i < u_num_lights; i++) 
-		{
-			int type = u_light_types[i];
-			vec3 light_position = u_light_positions[i];
-			vec3 light_direction = u_light_directions[i];
-			vec2 cos_angles = u_light_cos_angles[i];
-			float attenuation = 1.0;
-			float shadow = 1.0;
+		vec3 accumulation = vec3(1.0);
+		accumulation *= compute_attenuation(light_position, u_light_directions[i], u_light_cos_angles[i], u_light_types[i]);
+		accumulation *= compute_shadow(u_shadow_maps[s], u_shadow_vps[s], u_shadow_biases[s], v_world_position, u_light_types[i]);
+		accumulation *= compute_intensified_color(u_light_colors[i], u_light_intensities[i]);
+		accumulation *= compute_lighting(light_position, u_camera_position, v_world_position, 
+										 v_normal, u_shininess, roughness, F0, u_lighting_type);
 
-			if (type == NO_LIGHT)
-				continue;
+		total_accumulation += accumulation;
 
-			if (type == POINT_LIGHT)
-			{	
-				light_position -= v_world_position;
-				attenuation = quadratic_attenuation(light_position);
-			} 
-
-			if (type == SPOT_LIGHT)
-			{  
-				light_position -= v_world_position;
-				attenuation = angular_attenuation(light_position, light_direction, cos_angles);	
-				shadow = compute_shadow(u_shadow_maps[shadow_num], u_shadow_vps[shadow_num], u_shadow_biases[shadow_num], v_world_position, type);
-				shadow_num++;
-			}
-
-			if (type == DIRECTIONAL_LIGHT)
-			{	 
-				shadow = compute_shadow(u_shadow_maps[shadow_num], u_shadow_vps[shadow_num], u_shadow_biases[shadow_num], v_world_position, type);
-				shadow_num++;
-			}
-
-			vec3 L = normalize(light_position);
-			vec3 V = normalize(u_camera_position - v_world_position);
-			vec3 N = normalize(v_normal);
-			vec3 R = normalize(reflect(-L, N));
-		
-			float L_dot_N = clamp(dot(N, L), 0.0, 1.0);
-			float R_dot_V = clamp(dot(R, V), 0.0, 1.0);
-
-			vec3 light_color =  attenuation * u_light_colors[i] * u_light_intensities[i];
-
-			diffuse_component += shadow * light_color * L_dot_N;
-			specular_component += shadow * light_color * pow(R_dot_V, u_shininess);
-		}
-
-		if(color.a < u_alpha_cutoff)
-			discard;
-
-		color.xyz *= ambient_component + diffuse_component + specular_component;
-		FragColor = color;
+		if (u_light_types[i] != POINT_LIGHT)
+			s++;
 	}
-	else if (u_lighting_type == 1)
-	{
-		if(color.a < u_alpha_cutoff)
-			discard;
 
-		vec3 directLighting = vec3(0.0);
-
-		vec3 F0 = mix(vec3(0.04), albedo, metalness);
-
-		for (int i = 0; i < u_num_lights; i++) 
-		{
-			int type = u_light_types[i];
-			vec3 light_position = u_light_positions[i];
-			vec3 light_direction = u_light_directions[i];
-			vec2 cos_angles = u_light_cos_angles[i];
-			float attenuation = 1.0;
-			float shadow = 1.0;
-
-			if (type == NO_LIGHT)
-				continue;
-
-			if (type == POINT_LIGHT)
-			{	
-				light_position -= v_world_position;
-				attenuation = quadratic_attenuation(light_position);
-			} 
-
-			if (type == SPOT_LIGHT)
-			{  
-				light_position -= v_world_position;
-				attenuation = angular_attenuation(light_position, light_direction, cos_angles);	
-				shadow = compute_shadow(u_shadow_maps[shadow_num], u_shadow_vps[shadow_num], u_shadow_biases[shadow_num], v_world_position, type);
-				shadow_num++;
-			}
-
-			if (type == DIRECTIONAL_LIGHT)
-			{	 
-				shadow = compute_shadow(u_shadow_maps[shadow_num], u_shadow_vps[shadow_num], u_shadow_biases[shadow_num], v_world_position, type);
-				shadow_num++;
-			}
-
-			vec3 L = normalize(light_position);
-			vec3 V = normalize(u_camera_position - v_world_position);
-			vec3 N = normalize(v_normal);
-			vec3 R = normalize(reflect(-L, N));
-			vec3 H = normalize(V+L);
-
-			float rp = clamp(roughness, 0.0, 1.0);
-			float alpha = rp*rp;
-			float alpha_sq = pow(alpha,2.0);
-
-			float N_dot_L = clamp(dot(N, L), 0.0, 1.0);
-			float N_dot_V = clamp(dot(N,V), 0.0, 1.0);
-			float H_dot_V = clamp(dot(H,V), 0.0, 1.0);
-			float N_dot_H = clamp(dot(N,H), 0.0, 1.0);
-
-			vec3 fresnel  = comp_F(F0, H_dot_V);
-			float distribution  = comp_D(alpha_sq, N_dot_H);
-			float geometry = comp_G(N_dot_V, alpha);
-
-			vec3 light_color =  attenuation * u_light_colors[i];
-			diffuse_component = shadow * light_color * N_dot_L;
-			float denom = max((4.0 * N_dot_L * N_dot_V), 0.0001);
-			specular_component = shadow*((fresnel * distribution * geometry) / denom);
-
-			directLighting += (diffuse_component + specular_component) * u_light_intensities[i] * N_dot_L;
-		}
-
-		color.xyz *=  directLighting;//diffuse_component + specular_component;
-		FragColor = color;
-	}
+	color.xyz *= total_accumulation;
+	FragColor = color;
 }
 
 
@@ -866,6 +683,7 @@ in vec4 v_color;
 
 uniform vec4 u_color;
 uniform sampler2D u_texture;
+uniform float u_alpha_cutoff;
 uniform float u_time;
 
 // View
@@ -875,6 +693,7 @@ uniform vec3 u_camera_position;
 uniform float u_shininess;			
 
 // Lighting
+uniform int u_light_num;
 uniform vec3 u_light_ambient;
 uniform vec3 u_light_position;
 uniform vec3 u_light_color;
@@ -883,13 +702,19 @@ uniform float u_light_intensity;
 uniform int u_light_type; 
 uniform vec2 u_light_cos_angle;
 
+// Shading
+uniform int u_shadow_num;
+uniform sampler2D u_shadow_map;
+uniform mat4 u_shadow_vp;
+uniform float u_shadow_bias;
+
 out vec4 FragColor;
 
 void main()
 {
-	vec2 uv = v_uv;
-	vec4 color = u_color;
-	color *= texture( u_texture, v_uv );
+	vec4 color = u_color * texture( u_texture, v_uv);
+	if (color.a < u_alpha_cutoff)
+		discard;
 	
 	vec3 light_position = correct_light_position(u_light_position, v_world_position, u_light_type);
 
@@ -898,10 +723,34 @@ void main()
 	accumulation *= compute_phong(light_position, u_camera_position, v_world_position, v_normal, u_shininess);
 	accumulation *= compute_attenuation(light_position, u_light_direction, u_light_cos_angle, u_light_type);
 	accumulation *= compute_intensified_color(u_light_color, u_light_intensity);
-	// accumulation *= compute_shadow(u_shadow_map, u_shadow_vp, u_shadow_bias, v_world_position, u_light_type);
+	accumulation *= compute_shadow(u_shadow_map, u_shadow_vp, u_shadow_bias, v_world_position, u_light_type);
+	accumulation += u_light_ambient * float(u_light_num == 0);
 
 	color.xyz *= accumulation;
 	FragColor = color;
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
+
+//advance this shader for the last project
+\environment_reflections.fs
+
+#version 330 core
+
+in vec3 v_world_position;
+in vec3 v_normal;
+in vec2 v_uv;
+
+uniform vec3 u_camera_position;	
+uniform sampler2D u_albedo_texture;
+
+out vec4 FragColor;
+
+void main()
+{
+	vec3 N = normalize(v_normal);
+	vec3 V = normalize(u_camera_position - v_world_position);
+	vec3 R = reflect(V, N);
+
+	FragColor = texture(u_albedo_texture, R.xy);
+}

@@ -65,6 +65,7 @@ void LightCommand::uploadUniform(GFX::Shader* shader, int light_num) const
 		return;
 
 	const int i = light_num;
+	shader->setUniform("u_light_num", light_num);
 	shader->setUniform("u_light_ambient", this->ambient);
 	shader->setUniform("u_light_position", this->positions[i]);
 	shader->setUniform("u_light_color", this->colors[i]);

@@ -43,12 +43,18 @@ Renderer::Renderer(const char* shader_atlas_filename)
 	this->sphere.createSphere(1.0f);
 	this->sphere.uploadToVRAM();
 
+	this->is_cubemap_reflections = false;
 	this->current_forward_mode = ForwardMode::SINGLE_PASS;
 	this->current_pipeline = RenderPipeline::DEFERRED;
 	this->lighting_type = Lighting_Type::PBR;
 	this->current_gbuffer = GbufferType::ALBEDO_MAP;
+
 	this->deferred_command.init(2 * window_size.x, 2 * window_size.y); // 1024, 768 default
 	this->lighting.init(2 * window_size.x, 2 * window_size.y);
+
+	this->environment_cubemap = CubemapFromHDRE("data/panorama.hdre");
+	
+	this->small_sphere.createSphere(1.0f);
 }
 
 Renderer::~Renderer()
@@ -237,102 +243,11 @@ void Renderer::renderSkybox(GFX::Texture* cubemap)
 
 	shader->disable();
 
-	//return opengl state to default
 	glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 	glEnable(GL_DEPTH_TEST);
 }
 
-//renders a mesh given its transform and material
-
-void Renderer::renderMeshWithMaterial(DrawCommand draw_command) const
-{
-	Camera* camera = Camera::current;
-
-	if (draw_command.check())
-		return;
-
-	glEnable(GL_DEPTH_TEST);
-	assert(glGetError() == GL_NO_ERROR);
-
-	GFX::Shader* shader = GFX::Shader::Get("forward_light_single_pass");
-	if (!shader)
-		return;
-	shader->enable();
-
-	draw_command.material->bind(shader);
-
-	this->light_command.uploadUniforms(shader);
-	this->shadow_command.uploadUniforms(shader);
-	shader->setUniform("u_shininess", draw_command.material->shininess);
-	shader->setUniform("u_model", draw_command.model);
-	shader->setUniform("u_viewprojection", camera->viewprojection_matrix);
-	shader->setUniform("u_camera_position", camera->eye);
-	shader->setUniform("u_lighting_type", static_cast<int>(this->lighting_type));
-
-	//upload time, for cool shader effects
-	float time = getTime();
-	shader->setUniform("u_time", time);
-
-	if (this->render_wireframe)
-		glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
-
-	draw_command.mesh->render(GL_TRIANGLES);
-
-	shader->disable();
-
-	glDisable(GL_BLEND);
-	glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-}
-
-
-void Renderer::renderShaderMultiPass(Camera* camera, DrawCommand draw_command) const
-{
-	if (draw_command.check() || !camera)
-		return;
-
-	glEnable(GL_DEPTH_TEST);
-	assert(glGetError() == GL_NO_ERROR);
-
-	GFX::Shader* shader = GFX::Shader::Get("forward_light_multi_pass");
-	if (!shader)
-		return;
-	shader->enable();
-
-	draw_command.material->bind(shader);
-
-	glDepthFunc(GL_LEQUAL);
-	glBlendFunc(GL_SRC_ALPHA, GL_ONE);
-
-	for (int i = 0; i < this->light_command.num_lights; i++) {
-
-		if (i == 0)
-			glDisable(GL_BLEND);
-		else 
-			glEnable(GL_BLEND);
-
-		this->light_command.uploadUniform(shader, i);
-		shader->setUniform("u_shininess", draw_command.material->shininess);
-		shader->setUniform("u_model", draw_command.model);
-		shader->setUniform("u_viewprojection", camera->viewprojection_matrix);
-		shader->setUniform("u_camera_position", camera->eye);
-		shader->setUniform("u_time", (float)getTime());
-
-		draw_command.mesh->render(GL_TRIANGLES);
-	}
-
-	if (this->render_wireframe)
-		glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
-
-	shader->disable();
-
-	glDisable(GL_BLEND);
-	glDepthFunc(GL_LESS);
-	glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-
-
-}
-
-void Renderer::renderShader(Camera* camera, DrawCommand draw_command, const char* shader_name) const
+void Renderer::renderShaderSinglePass(Camera* camera, DrawCommand draw_command, const char* shader_name) const
 {
 	if (draw_command.check() || !camera)
 		return;
@@ -349,20 +264,71 @@ void Renderer::renderShader(Camera* camera, DrawCommand draw_command, const char
 
 	this->light_command.uploadUniforms(shader);
 	this->shadow_command.uploadUniforms(shader);
+
 	shader->setUniform("u_shininess", draw_command.material->shininess);
 	shader->setUniform("u_model", draw_command.model);
 	shader->setUniform("u_viewprojection", camera->viewprojection_matrix);
 	shader->setUniform("u_camera_position", camera->eye);
 	shader->setUniform("u_time", (float)getTime());
-
-	draw_command.mesh->render(GL_TRIANGLES);
+	shader->setUniform("u_lighting_type", (int)this->lighting_type);
 
 	if (this->render_wireframe)
 		glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
 
+	draw_command.mesh->render(GL_TRIANGLES);
+
 	shader->disable();
 
 	glDisable(GL_BLEND);
+	glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+}
+
+void Renderer::renderShaderMultiPass(Camera* camera, DrawCommand draw_command, const char* shader_name) const
+{
+	if (draw_command.check() || !camera)
+		return;
+
+	glEnable(GL_DEPTH_TEST);
+	assert(glGetError() == GL_NO_ERROR);
+
+	GFX::Shader* shader = GFX::Shader::Get(shader_name);
+	if (!shader)
+		return;
+	shader->enable();
+
+	draw_command.material->bind(shader);
+
+	glDepthFunc(GL_LEQUAL);
+	glBlendFunc(GL_SRC_ALPHA, GL_ONE);
+
+	int s = 0;
+	for (int i = 0; i < this->light_command.num_lights; i++) {
+
+		if (i == 0)
+			glDisable(GL_BLEND);
+		else 
+			glEnable(GL_BLEND);
+
+		this->light_command.uploadUniform(shader, i);
+		if (this->light_command.types[i] != eLightType::POINT) 
+			this->shadow_command.uploadUniform(shader, s++);
+
+		shader->setUniform("u_shininess", draw_command.material->shininess);
+		shader->setUniform("u_model", draw_command.model);
+		shader->setUniform("u_viewprojection", camera->viewprojection_matrix);
+		shader->setUniform("u_camera_position", camera->eye);
+		shader->setUniform("u_time", (float)getTime());
+
+		if (this->render_wireframe)
+			glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+
+		draw_command.mesh->render(GL_TRIANGLES);
+	}
+
+	shader->disable();
+
+	glDisable(GL_BLEND);
+	glDepthFunc(GL_LESS);
 	glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 }
 
@@ -374,7 +340,7 @@ void Renderer::renderShadow(Camera* light_camera, GFX::FBO* shadow_fbo) const
 	glClear(GL_DEPTH_BUFFER_BIT);
 
 	for (DrawCommand draw_command : this->draw_command_opaque_list) {
-		this->renderShader(light_camera, draw_command, "plain");
+		this->renderShaderSinglePass(light_camera, draw_command, "plain");
 	}
 
 	glColorMask(true, true, true, true);
@@ -401,9 +367,9 @@ void Renderer::renderForward()
 
 	for (DrawCommand draw_command : this->draw_command_opaque_list) {
 		if (this->current_forward_mode == ForwardMode::SINGLE_PASS) 
-			this->renderShader(Camera::current, draw_command, "forward_light_single_pass");
+			this->renderShaderSinglePass(Camera::current, draw_command, "forward_light_single_pass");
 		else 
-			this->renderShaderMultiPass(Camera::current, draw_command);
+			this->renderShaderMultiPass(Camera::current, draw_command, "forward_light_multi_pass");
 	}
 
 	glEnable(GL_BLEND);
@@ -411,7 +377,9 @@ void Renderer::renderForward()
 
 	for (DrawCommand draw_command : this->draw_command_transparent_list) {
 		if (this->current_forward_mode == ForwardMode::SINGLE_PASS)
-			this->renderShader(Camera::current, draw_command, "forward_light_single_pass");
+			this->renderShaderSinglePass(Camera::current, draw_command, "forward_light_single_pass");
+		else
+			this->renderShaderMultiPass(Camera::current, draw_command, "forward_light_multi_pass");
 	}
 
 	glDisable(GL_BLEND);
@@ -436,7 +404,7 @@ void Renderer::renderDeferred()
 	}
 
 	for (DrawCommand draw_command : this->draw_command_opaque_list) {
-		this->renderShader(Camera::current, draw_command, "gbuffer_fill");
+		this->renderShaderSinglePass(Camera::current, draw_command, "gbuffer_fill");
 	}
 
 	glEnable(GL_BLEND);
@@ -467,7 +435,7 @@ void Renderer::renderDeferredLightingPass() const {
 
 	Vector2 window_size = CORE::getWindowSize();
 	shader->setUniform("u_res_inv", vec2(1.0f / window_size.x, 1.0f / window_size.y));
-	shader->setUniform("u_lighting_type", static_cast<int>(this->lighting_type));
+	shader->setUniform("u_lighting_type", (int)this->lighting_type);
 
 	//send geometric buffer textures
 	this->deferred_command.uploadTextures(shader);
@@ -479,6 +447,8 @@ void Renderer::renderDeferredLightingPass() const {
 	shader->disable();
 }
 
+
+//does not work
 void Renderer::renderLightVolumes()
 {
 	glDisable(GL_BLEND);
@@ -498,14 +468,14 @@ void Renderer::renderLightVolumes()
 	}
 
 	for (DrawCommand draw_command : this->draw_command_opaque_list) {
-		this->renderShader(Camera::current, draw_command, "forward_light_single_pass");
+		this->renderShaderSinglePass(Camera::current, draw_command, "forward_light_single_pass");
 	}
 
 	glEnable(GL_BLEND);
 	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 
 	for (DrawCommand draw_command : this->draw_command_transparent_list) {
-		this->renderShader(Camera::current, draw_command, "forward_light_single_pass");
+		this->renderShaderSinglePass(Camera::current, draw_command, "forward_light_single_pass");
 	}
 
 	glDisable(GL_BLEND);
@@ -557,7 +527,6 @@ void Renderer::renderLightVolumes()
 	glDisable(GL_BLEND);             
 	glFrontFace(GL_CCW);             
 
-
 	lighting.unbind();
 
 	lighting.gbuffer_FBO->color_textures[0]->toViewport();
@@ -566,6 +535,10 @@ void Renderer::renderLightVolumes()
 void Renderer::renderScene(Scene* scene, Camera* camera)
 {
 	this->scene = scene;
+	if (this->is_cubemap_reflections) {
+		return;
+	}
+
 	this->setupScene();
 	this->parseSceneEntities(scene, camera);
 
@@ -624,24 +597,36 @@ void Renderer::showUI()
 	static int selected_mode = (int)this->current_pipeline;
 	ImGui::Separator();
 	ImGui::Text("Render Mode Selector\n(0 forward, 1 deferred)");
-	ImGui::SliderInt("Mode", &selected_mode, 0, 1);
+	ImGui::SliderInt("Render", &selected_mode, 0, 1);
 	this->current_pipeline = (RenderPipeline)selected_mode;
 
 	// forward mode UI: single or multi pass
-	static int forward_mode = (int)this->current_forward_mode;
-	ImGui::Separator();
-	ImGui::Text("Forward Mode Selector\n(0 single, 1 multi)");
-	ImGui::SliderInt("Pass", &forward_mode, 0, 1);
-	this->current_forward_mode = (ForwardMode)forward_mode;
+	if (this->current_pipeline == RenderPipeline::FORWARD) {
+		static int forward_mode = (int)this->current_forward_mode;
+		ImGui::Text("Forward Mode Selector\n(0 single, 1 multi)");
+		ImGui::SliderInt("Pass", &forward_mode, 0, 1);
+		this->current_forward_mode = (ForwardMode)forward_mode;
+	}
 
 	//lighting type UI
-	static int lighting = (int)this->lighting_type;
+	if ((this->current_pipeline == RenderPipeline::FORWARD
+	and	this->current_forward_mode != ForwardMode::MULTI_PASS) 
+	or this->current_pipeline != RenderPipeline::FORWARD) {
+		static int lighting = (int)this->lighting_type;
+		ImGui::Text("Lighting Type Selector\n(0 Phong, 1 PBR)");
+		ImGui::SliderInt("Lighting", &lighting, 0, 1);
+		this->lighting_type = (Lighting_Type)lighting;
+	}
+
+	//activate cubemap reflections
+	static int cubemap_reflection_mode = (int)this->is_cubemap_reflections;
 	ImGui::Separator();
-	ImGui::Text("Lighting Type Selector\n(0 Phong, 1 PBR)");
-	ImGui::SliderInt("Type", &lighting, 0, 1);
-	this->lighting_type = (Lighting_Type)lighting;
+	ImGui::Text("Is Cubemap Mode?");
+	ImGui::SliderInt("Cubemap", &cubemap_reflection_mode, 0, 1);
+	this->is_cubemap_reflections = (bool)cubemap_reflection_mode;
 
 	//ambient Light Slider
+	ImGui::Separator();
 	ImGui::SliderFloat("Ambient R", &this->scene->ambient_light.x, 0.0f, 1.0f);
 	ImGui::SliderFloat("Ambient G", &this->scene->ambient_light.y, 0.0f, 1.0f);
 	ImGui::SliderFloat("Ambient B", &this->scene->ambient_light.z, 0.0f, 1.0f);
