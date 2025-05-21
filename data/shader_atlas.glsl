@@ -112,10 +112,16 @@ float comp_D(float alpha_sq, float N_dot_H)
 {
 	return alpha_sq / (PI * pow(pow(N_dot_H,2.0) * (alpha_sq - 1.0) + 1.0, 2.0));
 }
-
+/*
 float comp_G(float N_dot_V, float alpha)
 {
 	return N_dot_V / (N_dot_V * (1.0 - alpha/2.0) + alpha/2.0);
+}
+*/
+float comp_G(float N_dot_V, float N_dot_L, float alpha){
+	float G_V = N_dot_V / (N_dot_V * (1.0 - alpha/2) + alpha/2);
+    float G_L = N_dot_L / (N_dot_L * (1.0 - alpha/2) + alpha/2);
+    return (G_V * G_L);
 }
 
 vec3 compute_pbr(vec3 light_position, vec3 camera_position, 
@@ -138,7 +144,7 @@ vec3 compute_pbr(vec3 light_position, vec3 camera_position,
 
 	vec3 fresnel  = comp_F(F0, H_dot_V);
 	float distribution  = comp_D(alpha_sq, N_dot_H);
-	float geometry = comp_G(N_dot_V, alpha);
+	float geometry = comp_G(N_dot_V, N_dot_L, alpha);
 
 	vec3 diffuse_component = N_dot_L * vec3(1.0);
 	float denom = max((4.0 * N_dot_L * N_dot_V), 0.0001);
