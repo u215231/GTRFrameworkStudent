@@ -73,9 +73,10 @@ void DeferredCommand::view(GbufferType type)
 void DeferredCommand::uploadTextures(GFX::Shader* shader) const
 {
 	int texture_slot = 0;
-	shader->setTexture("u_gbuffer_color", gbuffer_FBO->color_textures[0], texture_slot++);
-	shader->setTexture("u_gbuffer_normal", gbuffer_FBO->color_textures[1], texture_slot++);
+	shader->setTexture("gbuffer_albedo_roughness_map", gbuffer_FBO->color_textures[0], texture_slot++);
+	shader->setTexture("gbuffer_normal_metalness_map", gbuffer_FBO->color_textures[1], texture_slot++);
 	shader->setTexture("u_gbuffer_position", gbuffer_FBO->color_textures[2], texture_slot++);
 	shader->setTexture("u_gbuffer_shadow", gbuffer_FBO->color_textures[3], texture_slot++);
+
 	shader->setTexture("u_gbuffer_depth", gbuffer_FBO->depth_texture, texture_slot++);
 }

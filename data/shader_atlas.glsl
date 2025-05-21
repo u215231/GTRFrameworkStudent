@@ -106,18 +106,13 @@ vec3 compute_phong(vec3 light_position, vec3 camera_position,
 
 vec3 comp_F(vec3 F0, float H_dot_V)
 {
-	return F0 + (vec3(1.0) - F0)*pow((1.0 - H_dot_V),5.0);
+	return F0 + (1.0 - F0)*pow((1.0 - H_dot_V),5.0);
 }
 float comp_D(float alpha_sq, float N_dot_H)
 {
 	return alpha_sq / (PI * pow(pow(N_dot_H,2.0) * (alpha_sq - 1.0) + 1.0, 2.0));
 }
-/*
-float comp_G(float N_dot_V, float alpha)
-{
-	return N_dot_V / (N_dot_V * (1.0 - alpha/2.0) + alpha/2.0);
-}
-*/
+
 float comp_G(float N_dot_V, float N_dot_L, float alpha){
 	float G_V = N_dot_V / (N_dot_V * (1.0 - alpha/2) + alpha/2);
     float G_L = N_dot_L / (N_dot_L * (1.0 - alpha/2) + alpha/2);
@@ -150,7 +145,7 @@ vec3 compute_pbr(vec3 light_position, vec3 camera_position,
 	float denom = max((4.0 * N_dot_L * N_dot_V), 0.0001);
 	vec3 specular_component = (fresnel * distribution * geometry) / denom;
 
-	return (diffuse_component + specular_component) * N_dot_L;
+	return vec3((diffuse_component + specular_component) * N_dot_L);
 }
 
 vec3 compute_lighting(vec3 light_position, vec3 camera_position, vec3 world_position,
@@ -484,9 +479,10 @@ void main()
 
 in vec2 v_uv;
 
+
 // G-buffers
-uniform sampler2D u_gbuffer_color;
-uniform sampler2D u_gbuffer_normal;
+uniform sampler2D gbuffer_albedo_roughness_map;
+uniform sampler2D gbuffer_normal_metalness_map;
 uniform sampler2D u_gbuffer_position;
 uniform sampler2D u_gbuffer_shadow;
 uniform sampler2D u_gbuffer_depth;
@@ -510,6 +506,7 @@ uniform int u_light_types[MAX_NUM_LIGHTS];
 uniform vec2 u_light_cos_angles[MAX_NUM_LIGHTS];
 uniform int u_lighting_type;
 
+
 // Shading
 uniform int u_num_shadows;
 
@@ -527,15 +524,15 @@ float unmerge_shadow_map(int num_shadows, int shadow_num, float merged_shadow, i
 
 void main() 
 {
-    vec2 uv = gl_FragCoord.xy * u_res_inv;
+    vec2 uv = v_uv;
 	vec2 uv_clip = uv * 2.0 - 1.0;
 
-	vec4 albedo_rough = texture(u_gbuffer_color, uv);
+	vec4 albedo_rough = texture(gbuffer_albedo_roughness_map, uv);
 	vec3 albedo = albedo_rough.rgb;
 	float roughness = albedo_rough.a;
-	vec4 color = vec4(albedo, 1.0);
+	vec4 color = vec4(albedo, 1.0);//vec4(albedo, 1.0);
 
-	vec4 normal_metal = texture(u_gbuffer_normal, uv);
+	vec4 normal_metal = texture(gbuffer_normal_metalness_map, uv);
 	float metalness = normal_metal.a;
 	vec3 normal_encoded = normal_metal.rgb;
 	vec3 normal = normal_encoded * 2.0 - 1.0;
