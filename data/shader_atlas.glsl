@@ -530,7 +530,7 @@ void main()
 	vec4 albedo_rough = texture(gbuffer_albedo_roughness_map, uv);
 	vec3 albedo = albedo_rough.rgb;
 	float roughness = albedo_rough.a;
-	vec4 color = vec4(albedo, 1.0);//vec4(albedo, 1.0);
+	vec4 color = vec4(albedo, 1.0);
 
 	vec4 normal_metal = texture(gbuffer_normal_metalness_map, uv);
 	float metalness = normal_metal.a;
@@ -553,7 +553,9 @@ void main()
 	vec4 not_norm_world_pos = u_inv_vp_mat * clip_coords;
 	vec3 world_position = not_norm_world_pos.xyz / not_norm_world_pos.w;
 	
-	vec3 total_accumulation = u_light_ambient;
+	
+	vec3 total_accumulation = vec3(0.0);
+
 
 	int s = 0;
 	for (int i = 0; i < u_num_lights && i < MAX_NUM_LIGHTS; ++i) 
@@ -575,6 +577,8 @@ void main()
 		if (u_light_types[i] != POINT_LIGHT)  
 			s++;
 	}
+	if (u_lighting_type == PHONG)
+		total_accumulation += u_light_ambient;
 
 	color.xyz *= total_accumulation;  
 	FragColor = color;
