@@ -119,6 +119,7 @@ float comp_G(float N_dot_V, float N_dot_L, float alpha){
     return (G_V * G_L);
 }
 
+//For Ref Probes add the parameters samplerCube reflection_probe, float reflection_strength
 vec3 compute_pbr(vec3 light_position, vec3 camera_position, 
 				 vec3 world_position, vec3 normal, float roughness, vec3 F0)
 {
@@ -137,13 +138,20 @@ vec3 compute_pbr(vec3 light_position, vec3 camera_position,
 	float H_dot_V = clamp(dot(H, V), 0.0, 1.0);
 	float N_dot_H = clamp(dot(N, H), 0.0, 1.0);
 
+	//(Ref Probes)
+	//vec3 view_dir = normalize(camera_position - world_position);
+    //vec3 reflect_dir = reflect(-view_dir, normal);
+    //vec3 reflection_color = texture(reflection_probe, reflect_dir).rgb;
+
 	vec3 fresnel  = comp_F(F0, H_dot_V);
+	//vec3 reflections = fresnel * reflection_color * reflection_strength; (Ref Probes)
 	float distribution  = comp_D(alpha_sq, N_dot_H);
 	float geometry = comp_G(N_dot_V, N_dot_L, alpha);
 
 	vec3 diffuse_component = N_dot_L * vec3(1.0);
 	float denom = max((4.0 * N_dot_L * N_dot_V), 0.0001);
 	vec3 specular_component = (fresnel * distribution * geometry) / denom;
+	//specular_component += reflections * (1.0 - roughness); (Ref Probes)
 
 	return vec3((diffuse_component + specular_component) * N_dot_L);
 }

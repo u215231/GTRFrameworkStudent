@@ -13,6 +13,7 @@ public:
     GFX::Texture* cubemap = nullptr;
     float range = 10.0f;
     vec3 position;
+    bool needs_update = true;
 
     ReflectionProbeEntity();
     ~ReflectionProbeEntity();

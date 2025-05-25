@@ -540,11 +540,10 @@ void Renderer::renderScene(Scene* scene, Camera* camera)
 	this->setupScene();
 	this->parseSceneEntities(scene, camera);
 
-	//No funciona amb aixo (captureEnvironment crida renderScene)
-	/*if (this->reflection_probe && !this->has_captured_probe) {
+	if (this->reflection_probe && this->is_cubemap_reflections && reflection_probe->needs_update) {
+		reflection_probe->needs_update == false;
 		this->reflection_probe->captureEnvironment(scene, this);
-		this->has_captured_probe = true;
-	}*/
+	}
 
 	for (int i = 0; i < (int)this->camera_light_list.size(); i++) {
 		Camera* camera_light = this->camera_light_list.at(i);

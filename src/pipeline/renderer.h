@@ -72,7 +72,6 @@ namespace SCN {
 		std::vector<GFX::Mesh> spheres; //lab4
 
 		bool is_cubemap_reflections = true;
-		bool has_captured_probe = false;
 		ReflectionProbeEntity* reflection_probe;
 		
 
