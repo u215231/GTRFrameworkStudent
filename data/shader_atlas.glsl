@@ -580,7 +580,7 @@ void main()
 	if (u_lighting_type == PHONG)
 		total_accumulation += u_light_ambient;
 
-	color.xyz *= total_accumulation;  
+	color.xyz *= total_accumulation;
 	FragColor = color;
 }
 

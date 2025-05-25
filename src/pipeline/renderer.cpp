@@ -52,9 +52,10 @@ Renderer::Renderer(const char* shader_atlas_filename)
 	this->deferred_command.init(2 * window_size.x, 2 * window_size.y); // 1024, 768 default
 	this->lighting.init(2 * window_size.x, 2 * window_size.y);
 
-	this->environment_cubemap = CubemapFromHDRE("data/panorama.hdre");
-	
-	this->small_sphere.createSphere(1.0f);
+	if (is_cubemap_reflections) {
+		this->reflection_probe = new ReflectionProbeEntity();
+		this->reflection_probe->setPosition(vec3(0, 3, 0));
+	}
 }
 
 Renderer::~Renderer()
@@ -535,12 +536,15 @@ void Renderer::renderLightVolumes()
 void Renderer::renderScene(Scene* scene, Camera* camera)
 {
 	this->scene = scene;
-	if (this->is_cubemap_reflections) {
-		return;
-	}
 
 	this->setupScene();
 	this->parseSceneEntities(scene, camera);
+
+	//No funciona amb aixo (captureEnvironment crida renderScene)
+	/*if (this->reflection_probe && !this->has_captured_probe) {
+		this->reflection_probe->captureEnvironment(scene, this);
+		this->has_captured_probe = true;
+	}*/
 
 	for (int i = 0; i < (int)this->camera_light_list.size(); i++) {
 		Camera* camera_light = this->camera_light_list.at(i);

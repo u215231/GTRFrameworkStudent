@@ -7,6 +7,7 @@
 #include "light_command.h"
 #include "shadow_command.h"
 #include "deferred_command.h"
+#include "reflection_probe.h"
 
 //forward declarations
 class Camera;
@@ -70,9 +71,10 @@ namespace SCN {
 		DeferredCommand lighting;
 		std::vector<GFX::Mesh> spheres; //lab4
 
-		bool is_cubemap_reflections;
-		GFX::Texture* environment_cubemap;
-		GFX::Mesh small_sphere;
+		bool is_cubemap_reflections = true;
+		bool has_captured_probe = false;
+		ReflectionProbeEntity* reflection_probe;
+		
 
 		//updated every frames
 		Renderer(const char* shaders_atlas_filename);
