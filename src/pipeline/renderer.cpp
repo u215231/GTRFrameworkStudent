@@ -273,6 +273,13 @@ void Renderer::renderShaderSinglePass(Camera* camera, DrawCommand draw_command, 
 	shader->setUniform("u_time", (float)getTime());
 	shader->setUniform("u_lighting_type", (int)this->lighting_type);
 
+	if (is_cubemap_reflections && reflection_probe) {
+		shader->setUniform("u_reflection_probe", reflection_probe->cubemap, 10); //Use texture unit 10
+		shader->setUniform("u_reflection_strength", 0.5f); //Adjust as needed
+		shader->setUniform("u_probe_position", reflection_probe->position);
+		shader->setUniform("u_probe_range", reflection_probe->range);
+	}
+
 	if (this->render_wireframe)
 		glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
 

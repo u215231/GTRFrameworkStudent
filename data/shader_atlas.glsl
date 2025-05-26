@@ -119,7 +119,6 @@ float comp_G(float N_dot_V, float N_dot_L, float alpha){
     return (G_V * G_L);
 }
 
-//For Ref Probes add the parameters samplerCube reflection_probe, float reflection_strength
 vec3 compute_pbr(vec3 light_position, vec3 camera_position, 
 				 vec3 world_position, vec3 normal, float roughness, vec3 F0)
 {
@@ -138,30 +137,57 @@ vec3 compute_pbr(vec3 light_position, vec3 camera_position,
 	float H_dot_V = clamp(dot(H, V), 0.0, 1.0);
 	float N_dot_H = clamp(dot(N, H), 0.0, 1.0);
 
-	//(Ref Probes)
-	//vec3 view_dir = normalize(camera_position - world_position);
-    //vec3 reflect_dir = reflect(-view_dir, normal);
-    //vec3 reflection_color = texture(reflection_probe, reflect_dir).rgb;
-
 	vec3 fresnel  = comp_F(F0, H_dot_V);
-	//vec3 reflections = fresnel * reflection_color * reflection_strength; (Ref Probes)
 	float distribution  = comp_D(alpha_sq, N_dot_H);
 	float geometry = comp_G(N_dot_V, N_dot_L, alpha);
 
 	vec3 diffuse_component = N_dot_L * vec3(1.0);
 	float denom = max((4.0 * N_dot_L * N_dot_V), 0.0001);
 	vec3 specular_component = (fresnel * distribution * geometry) / denom;
-	//specular_component += reflections * (1.0 - roughness); (Ref Probes)
+
+	return vec3((diffuse_component + specular_component) * N_dot_L);
+}
+
+vec3 compute_pbr_probes(vec3 light_position, vec3 camera_position, 
+				 vec3 world_position, vec3 normal, float roughness, vec3 F0, vec3 reflection_color, float reflection_strength, float metalness)
+{
+	vec3 L = normalize(light_position);
+	vec3 V = normalize(camera_position - world_position);
+	vec3 N = normalize(normal);
+	vec3 R = normalize(reflect(-L, N));
+	vec3 H = normalize(V + L);
+
+	float rp = clamp(roughness, 0.0, 1.0);
+	float alpha = rp * rp;
+	float alpha_sq = pow(alpha, 2.0);
+
+	float N_dot_L = clamp(dot(N, L), 0.0, 1.0);
+	float N_dot_V = clamp(dot(N, V), 0.0, 1.0);
+	float H_dot_V = clamp(dot(H, V), 0.0, 1.0);
+	float N_dot_H = clamp(dot(N, H), 0.0, 1.0);
+
+	vec3 fresnel  = comp_F(F0, H_dot_V);
+	float ref_str = mix(reflection_strength, 1.0, metalness); //(Ref Probes)
+	vec3 reflections = fresnel * reflection_color * ref_str; //(Ref Probes)
+
+	float distribution  = comp_D(alpha_sq, N_dot_H);
+	float geometry = comp_G(N_dot_V, N_dot_L, alpha);
+
+	vec3 diffuse_component = N_dot_L * vec3(1.0);
+	float denom = max((4.0 * N_dot_L * N_dot_V), 0.0001);
+	vec3 specular_component = (fresnel * distribution * geometry) / denom;
+	//specular_component += reflections * (1.0 - roughness); //(Ref Probes) COMENTAT PQ NO FUNCIONA
 
 	return vec3((diffuse_component + specular_component) * N_dot_L);
 }
 
 vec3 compute_lighting(vec3 light_position, vec3 camera_position, vec3 world_position,
-					  vec3 normal, float shininess, float roughness, vec3 F0, int lighting_type)
+					  vec3 normal, float shininess, float roughness, vec3 F0, int lighting_type, vec3 reflection_color, float reflection_strength, float metalness)
 {
 	if (lighting_type == PHONG) 
 		return compute_phong(light_position, camera_position, world_position, normal, shininess);
-	return compute_pbr(light_position, camera_position, world_position, normal, roughness, F0);
+	//return compute_pbr(light_position, camera_position, world_position, normal, roughness, F0);
+	return compute_pbr_probes(light_position, camera_position, world_position, normal, roughness, F0, reflection_color, reflection_strength, metalness);
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -514,6 +540,12 @@ uniform int u_light_types[MAX_NUM_LIGHTS];
 uniform vec2 u_light_cos_angles[MAX_NUM_LIGHTS];
 uniform int u_lighting_type;
 
+//Reflection Probes
+uniform samplerCube u_reflection_probe;
+uniform float u_reflection_strength;
+uniform vec3 u_probe_position;
+uniform float u_probe_range;
+
 
 // Shading
 uniform int u_num_shadows;
@@ -560,6 +592,14 @@ void main()
 	vec4 clip_coords = vec4( uv_clip.x, uv_clip.y, depth_clip, 1.0);
 	vec4 not_norm_world_pos = u_inv_vp_mat * clip_coords;
 	vec3 world_position = not_norm_world_pos.xyz / not_norm_world_pos.w;
+
+	vec3 view_dir = normalize(world_position - u_camera_position);
+	vec3 reflect_dir = reflect(-view_dir, normal);
+	vec3 reflection_color = texture(u_reflection_probe, reflect_dir).rgb;
+
+	// Debug: Test cubemap sampling with fixed direction
+	vec3 test_dir = vec3(0.0, 1.0, 0.0); // Sample top face
+	vec3 test_color = texture(u_reflection_probe, test_dir).rgb;
 	
 	
 	vec3 total_accumulation = vec3(0.0);
@@ -578,7 +618,7 @@ void main()
 		accumulation *= unmerge_shadow_map(u_num_shadows, s, shadow, u_light_types[i]);
 		accumulation *= compute_intensified_color(u_light_colors[i], u_light_intensities[i]);
 		accumulation *= compute_lighting(light_position, u_camera_position, world_position, 
-										 normal, shininess, roughness, F0, u_lighting_type);
+										 normal, shininess, roughness, F0, u_lighting_type, reflection_color, u_reflection_strength, metalness);
 		
 		total_accumulation += accumulation;
 
@@ -632,6 +672,12 @@ uniform int u_light_types[MAX_NUM_LIGHTS];
 uniform vec2 u_light_cos_angles[MAX_NUM_LIGHTS];
 uniform int u_lighting_type;
 
+//Reflection Probes
+uniform samplerCube u_reflection_probe;
+uniform float u_reflection_strength;
+uniform vec3 u_probe_position;
+uniform float u_probe_range;
+
 // Shading
 uniform int u_num_shadows;
 uniform sampler2D u_shadow_maps[MAX_NUM_SHADOWS];
@@ -649,6 +695,10 @@ void main()
 	vec3 albedo_srgb = texture(u_albedo_texture, v_uv).rgb;
 	vec3 albedo = pow(albedo_srgb, vec3(2.2)); //convert sRGB to linear
 	vec3 F0 = mix(vec3(0.04), albedo, metalness);
+
+	//vec3 view_dir = normalize(world_position - u_camera_position);
+	//vec3 reflect_dir = reflect(-view_dir, normal);
+	//vec3 reflection_color = texture(u_reflection_probe, reflect_dir).rgb;
 
 	vec4 color = u_color * texture(u_albedo_texture, v_uv );
 	if (color.a < u_alpha_cutoff)
@@ -668,8 +718,7 @@ void main()
 		accumulation *= compute_attenuation(light_position, u_light_directions[i], u_light_cos_angles[i], u_light_types[i]);
 		accumulation *= compute_shadow(u_shadow_maps[s], u_shadow_vps[s], u_shadow_biases[s], v_world_position, u_light_types[i]);
 		accumulation *= compute_intensified_color(u_light_colors[i], u_light_intensities[i]);
-		accumulation *= compute_lighting(light_position, u_camera_position, v_world_position, 
-										 v_normal, u_shininess, roughness, F0, u_lighting_type);
+		accumulation *= compute_pbr(light_position, u_camera_position, v_world_position, v_normal, roughness, F0); //compute_lighting(light_position, u_camera_position, v_world_position, v_normal, u_shininess, roughness, F0, u_lighting_type, reflection_color, u_reflection_strength);
 
 		total_accumulation += accumulation;
 
