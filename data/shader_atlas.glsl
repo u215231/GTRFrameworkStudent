@@ -108,6 +108,7 @@ vec3 comp_F(vec3 F0, float H_dot_V)
 {
 	return F0 + (1.0 - F0)*pow((1.0 - H_dot_V),5.0);
 }
+
 float comp_D(float alpha_sq, float N_dot_H)
 {
 	return alpha_sq / (PI * pow(pow(N_dot_H,2.0) * (alpha_sq - 1.0) + 1.0, 2.0));
@@ -149,7 +150,8 @@ vec3 compute_pbr(vec3 light_position, vec3 camera_position,
 }
 
 vec3 compute_pbr_probes(vec3 light_position, vec3 camera_position, 
-				 vec3 world_position, vec3 normal, float roughness, vec3 F0, vec3 reflection_color, float reflection_strength, float metalness)
+				 vec3 world_position, vec3 normal, float roughness, vec3 F0, 
+				 vec3 reflection_color, float reflection_strength, float metalness)
 {
 	vec3 L = normalize(light_position);
 	vec3 V = normalize(camera_position - world_position);
@@ -176,18 +178,9 @@ vec3 compute_pbr_probes(vec3 light_position, vec3 camera_position,
 	vec3 diffuse_component = N_dot_L * vec3(1.0);
 	float denom = max((4.0 * N_dot_L * N_dot_V), 0.0001);
 	vec3 specular_component = (fresnel * distribution * geometry) / denom;
-	//specular_component += reflections * (1.0 - roughness); //(Ref Probes) COMENTAT PQ NO FUNCIONA
+	specular_component += reflections * (1.0 - roughness); //(Ref Probes) COMENTAT PQ NO FUNCIONA
 
 	return vec3((diffuse_component + specular_component) * N_dot_L);
-}
-
-vec3 compute_lighting(vec3 light_position, vec3 camera_position, vec3 world_position,
-					  vec3 normal, float shininess, float roughness, vec3 F0, int lighting_type, vec3 reflection_color, float reflection_strength, float metalness)
-{
-	if (lighting_type == PHONG) 
-		return compute_phong(light_position, camera_position, world_position, normal, shininess);
-	//return compute_pbr(light_position, camera_position, world_position, normal, roughness, F0);
-	return compute_pbr_probes(light_position, camera_position, world_position, normal, roughness, F0, reflection_color, reflection_strength, metalness);
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -333,16 +326,19 @@ uniform float u_alpha_cutoff;
 
 out vec4 FragColor;
 
+uniform sampler2D u_albedo_texture;
+layout(location = 0) out vec4 gbuffer_albedo_roughness_map;
+
 void main()
 {
-	vec2 uv = v_uv;
 	vec4 color = u_color;
-	color *= texture( u_texture, v_uv );
+	color *= texture(u_albedo_texture, v_uv);
 
 	if(color.a < u_alpha_cutoff)
 		discard;
 
 	FragColor = color;
+	gbuffer_albedo_roughness_map = color;
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -513,7 +509,6 @@ void main()
 
 in vec2 v_uv;
 
-
 // G-buffers
 uniform sampler2D gbuffer_albedo_roughness_map;
 uniform sampler2D gbuffer_normal_metalness_map;
@@ -545,7 +540,6 @@ uniform samplerCube u_reflection_probe;
 uniform float u_reflection_strength;
 uniform vec3 u_probe_position;
 uniform float u_probe_range;
-
 
 // Shading
 uniform int u_num_shadows;
@@ -601,10 +595,8 @@ void main()
 	vec3 test_dir = vec3(0.0, 1.0, 0.0); // Sample top face
 	vec3 test_color = texture(u_reflection_probe, test_dir).rgb;
 	
-	
 	vec3 total_accumulation = vec3(0.0);
-
-
+	vec3 pbr;
 	int s = 0;
 	for (int i = 0; i < u_num_lights && i < MAX_NUM_LIGHTS; ++i) 
 	{
@@ -617,13 +609,20 @@ void main()
 		accumulation *= compute_attenuation(light_position, u_light_directions[i], u_light_cos_angles[i], u_light_types[i]);
 		accumulation *= unmerge_shadow_map(u_num_shadows, s, shadow, u_light_types[i]);
 		accumulation *= compute_intensified_color(u_light_colors[i], u_light_intensities[i]);
-		accumulation *= compute_lighting(light_position, u_camera_position, world_position, 
-										 normal, shininess, roughness, F0, u_lighting_type, reflection_color, u_reflection_strength, metalness);
+
+		if (u_lighting_type == PHONG) 
+			accumulation *= compute_phong(light_position, u_camera_position, world_position, normal, shininess);
+		//if (u_lighting_type == PBR)
+		//	accumulation *= compute_pbr(light_position, u_camera_position, world_position, normal, roughness, F0);
+		else
+			accumulation *= compute_pbr_probes(light_position, u_camera_position, world_position, normal, 
+			                                   roughness, F0, reflection_color, u_reflection_strength, metalness);
 		
 		total_accumulation += accumulation;
 
 		if (u_light_types[i] != POINT_LIGHT)  
 			s++;
+
 	}
 	if (u_lighting_type == PHONG)
 		total_accumulation += u_light_ambient;
@@ -696,10 +695,6 @@ void main()
 	vec3 albedo = pow(albedo_srgb, vec3(2.2)); //convert sRGB to linear
 	vec3 F0 = mix(vec3(0.04), albedo, metalness);
 
-	//vec3 view_dir = normalize(world_position - u_camera_position);
-	//vec3 reflect_dir = reflect(-view_dir, normal);
-	//vec3 reflection_color = texture(u_reflection_probe, reflect_dir).rgb;
-
 	vec4 color = u_color * texture(u_albedo_texture, v_uv );
 	if (color.a < u_alpha_cutoff)
 		discard;
@@ -718,8 +713,11 @@ void main()
 		accumulation *= compute_attenuation(light_position, u_light_directions[i], u_light_cos_angles[i], u_light_types[i]);
 		accumulation *= compute_shadow(u_shadow_maps[s], u_shadow_vps[s], u_shadow_biases[s], v_world_position, u_light_types[i]);
 		accumulation *= compute_intensified_color(u_light_colors[i], u_light_intensities[i]);
-		accumulation *= compute_pbr(light_position, u_camera_position, v_world_position, v_normal, roughness, F0); //compute_lighting(light_position, u_camera_position, v_world_position, v_normal, u_shininess, roughness, F0, u_lighting_type, reflection_color, u_reflection_strength);
-
+		if (u_lighting_type == PHONG) 
+			accumulation *= compute_phong(light_position, u_camera_position, v_world_position, v_normal, u_shininess);
+		else
+			accumulation *= compute_pbr(light_position, u_camera_position, v_world_position, v_normal, roughness, F0);
+		
 		total_accumulation += accumulation;
 
 		if (u_light_types[i] != POINT_LIGHT)

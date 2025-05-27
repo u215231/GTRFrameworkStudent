@@ -15,7 +15,6 @@
 #include "../extra/hdre.h"
 #include "../core/ui.h"
 
-
 #include "scene.h"
 
 using namespace SCN;
@@ -43,7 +42,7 @@ Renderer::Renderer(const char* shader_atlas_filename)
 	this->sphere.createSphere(1.0f);
 	this->sphere.uploadToVRAM();
 
-	this->is_cubemap_reflections = false;
+	
 	this->current_forward_mode = ForwardMode::SINGLE_PASS;
 	this->current_pipeline = RenderPipeline::DEFERRED;
 	this->lighting_type = Lighting_Type::PBR;
@@ -52,10 +51,9 @@ Renderer::Renderer(const char* shader_atlas_filename)
 	this->deferred_command.init(2 * window_size.x, 2 * window_size.y); // 1024, 768 default
 	this->lighting.init(2 * window_size.x, 2 * window_size.y);
 
-	if (is_cubemap_reflections) {
-		this->reflection_probe = new ReflectionProbeEntity();
-		this->reflection_probe->setPosition(vec3(0, 3, 0));
-	}
+	this->is_cubemap_reflections = true;
+	this->reflection_probe = new ReflectionProbeEntity();
+	this->reflection_probe->setPosition(vec3(-1.0, 0.5, 0.0));
 }
 
 Renderer::~Renderer()
@@ -273,13 +271,6 @@ void Renderer::renderShaderSinglePass(Camera* camera, DrawCommand draw_command, 
 	shader->setUniform("u_time", (float)getTime());
 	shader->setUniform("u_lighting_type", (int)this->lighting_type);
 
-	if (is_cubemap_reflections && reflection_probe) {
-		shader->setUniform("u_reflection_probe", reflection_probe->cubemap, 10); //Use texture unit 10
-		shader->setUniform("u_reflection_strength", 0.5f); //Adjust as needed
-		shader->setUniform("u_probe_position", reflection_probe->position);
-		shader->setUniform("u_probe_range", reflection_probe->range);
-	}
-
 	if (this->render_wireframe)
 		glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
 
@@ -340,6 +331,35 @@ void Renderer::renderShaderMultiPass(Camera* camera, DrawCommand draw_command, c
 	glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 }
 
+void Renderer::renderFBO(Camera* camera, GFX::FBO* fbo, const char* shader_name)
+{
+	fbo->bind();
+
+	glClearColor(
+		this->scene->background_color.x,
+		this->scene->background_color.y,
+		this->scene->background_color.z,
+		1.0
+	);
+
+	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+	GFX::checkGLErrors();
+
+	if (this->skybox_cubemap) {
+		this->renderSkybox(this->skybox_cubemap);
+	}
+
+	for (DrawCommand draw_command : this->draw_command_opaque_list) {
+		this->renderShaderSinglePass(camera, draw_command, shader_name);
+	}
+
+	glEnable(GL_BLEND);
+	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+	glDisable(GL_BLEND);
+
+	fbo->unbind();
+}
+
 //renders the meshes from the point of view of the light camera in textures menu
 void Renderer::renderShadow(Camera* light_camera, GFX::FBO* shadow_fbo) const
 {
@@ -393,38 +413,11 @@ void Renderer::renderForward()
 	glDisable(GL_BLEND);
 }
 
-void Renderer::renderDeferred()
+void Renderer::renderDeferred() 
 {
-	this->deferred_command.bind();
-
-	glClearColor(
-		scene->background_color.x,
-		scene->background_color.y,
-		scene->background_color.z,
-		1.0
-	);
-
-	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-	GFX::checkGLErrors();
-
-	if (this->skybox_cubemap) {
-		this->renderSkybox(this->skybox_cubemap);
-	}
-
-	for (DrawCommand draw_command : this->draw_command_opaque_list) {
-		this->renderShaderSinglePass(Camera::current, draw_command, "gbuffer_fill");
-	}
-
-	glEnable(GL_BLEND);
-	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-	glDisable(GL_BLEND);
-
-	this->deferred_command.unbind();
-}
-
-void Renderer::renderDeferredLightingPass() const {
-
 	Camera* camera = Camera::current;
+
+	this->renderFBO(camera, this->deferred_command.gbuffer_FBO, "gbuffer_fill");
 
 	//get the full-screen quad mesh
 	GFX::Mesh* quad = GFX::Mesh::getQuad();
@@ -444,100 +437,20 @@ void Renderer::renderDeferredLightingPass() const {
 	Vector2 window_size = CORE::getWindowSize();
 	shader->setUniform("u_res_inv", vec2(1.0f / window_size.x, 1.0f / window_size.y));
 	shader->setUniform("u_lighting_type", (int)this->lighting_type);
-
+	
 	//send geometric buffer textures
 	this->deferred_command.uploadTextures(shader);
+
+	//send cubemap reflections
+	if (this->is_cubemap_reflections) {
+		this->reflection_probe->uploadUniforms(shader);
+	}
 
 	//render the full-screen quad
 	quad->render(GL_TRIANGLES);
 
 	//disable the shader
 	shader->disable();
-}
-
-
-//does not work
-void Renderer::renderLightVolumes()
-{
-	glDisable(GL_BLEND);
-
-	glClearColor(
-		scene->background_color.x,
-		scene->background_color.y,
-		scene->background_color.z,
-		1.0
-	);
-
-	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
-	GFX::checkGLErrors();
-
-	if (this->skybox_cubemap) {
-		this->renderSkybox(this->skybox_cubemap);
-	}
-
-	for (DrawCommand draw_command : this->draw_command_opaque_list) {
-		this->renderShaderSinglePass(Camera::current, draw_command, "forward_light_single_pass");
-	}
-
-	glEnable(GL_BLEND);
-	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-
-	for (DrawCommand draw_command : this->draw_command_transparent_list) {
-		this->renderShaderSinglePass(Camera::current, draw_command, "forward_light_single_pass");
-	}
-
-	glDisable(GL_BLEND);
-
-
-	this->deferred_command.gbuffer_FBO->depth_texture->copyTo(lighting.gbuffer_FBO->depth_texture);
-
-	lighting.bind();
-
-	// Set the OpenGL config
-	glDepthFunc(GL_GREATER);
-	glDepthMask(GL_FALSE);
-	glBlendFunc(GL_ONE, GL_ONE);
-	glEnable(GL_BLEND);
-	glFrontFace(GL_CW);
-
-	for (SCN::LightEntity* light : this->light_list) 
-	{
-		if (light->light_type == eLightType::DIRECTIONAL 
-			or light->light_type == eLightType::NO_LIGHT)
-			continue;
-
-		Vector3 light_position = light->root.getGlobalMatrix().getTranslation();
-
-		Matrix44 model;
-		model.setTranslation(light_position.x, light_position.y, light_position.z);
-		model.scale(light->max_distance, light->max_distance, light->max_distance); 
-
-		GFX::Mesh sphere;
-		sphere.createSphere(light->max_distance);
-
-		GFX::Shader* shader = GFX::Shader::Get("light_volumes");
-		if (!shader)
-			return;
-		shader->enable();
-
-		shader->setUniform("u_model", model);
-		shader->setUniform("u_light_position", light_position);
-		shader->setUniform("u_light_color", light->color);
-		shader->setUniform("u_light_max_distance", light->max_distance);
-
-		sphere.render(GL_TRIANGLES);
-	}
-
-	// Return the OpenGL config to what it was
-	glDepthFunc(GL_LESS);            
-	glDepthMask(GL_TRUE);            
-	glBlendFunc(GL_ONE, GL_ZERO);    
-	glDisable(GL_BLEND);             
-	glFrontFace(GL_CCW);             
-
-	lighting.unbind();
-
-	lighting.gbuffer_FBO->color_textures[0]->toViewport();
 }
 
 void Renderer::renderScene(Scene* scene, Camera* camera)
@@ -547,11 +460,10 @@ void Renderer::renderScene(Scene* scene, Camera* camera)
 	this->setupScene();
 	this->parseSceneEntities(scene, camera);
 
-	if (this->reflection_probe && this->is_cubemap_reflections && reflection_probe->needs_update) {
-		reflection_probe->needs_update == false;
+	if (this->is_cubemap_reflections) {
 		this->reflection_probe->captureEnvironment(scene, this);
 	}
-
+	
 	for (int i = 0; i < (int)this->camera_light_list.size(); i++) {
 		Camera* camera_light = this->camera_light_list.at(i);
 		GFX::FBO* shadow_fbo = this->shadow_FBOs.at(i);
@@ -564,12 +476,11 @@ void Renderer::renderScene(Scene* scene, Camera* camera)
 		break;
 	case RenderPipeline::DEFERRED:
 		this->renderDeferred();
-		this->renderDeferredLightingPass();
 		break;
 	// Do not call because does not work
 	case RenderPipeline::LIGHT_VOLUME:
-		this->renderDeferred();
-		this->renderLightVolumes();
+		//this->renderDeferred();
+		//this->renderLightVolumes();
 		break;
 	}
 }

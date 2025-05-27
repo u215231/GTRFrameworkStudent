@@ -71,7 +71,7 @@ namespace SCN {
 		DeferredCommand lighting;
 		std::vector<GFX::Mesh> spheres; //lab4
 
-		bool is_cubemap_reflections = true;
+		bool is_cubemap_reflections;
 		ReflectionProbeEntity* reflection_probe;
 		
 
@@ -93,10 +93,10 @@ namespace SCN {
 		void renderSkybox(GFX::Texture* cubemap);
 		void renderShaderSinglePass(Camera* camera, DrawCommand draw_command, const char* shader_name) const;
 		void renderShaderMultiPass(Camera* camera, DrawCommand draw_command, const char* shader_name) const;
+		void renderFBO(Camera* camera, GFX::FBO* fbo, const char* shader_name);
 		void renderShadow(Camera* light_camera, GFX::FBO* shadow_fbo) const;
 		void renderForward();
 		void renderDeferred();
-		void renderDeferredLightingPass() const;
 		void renderLightVolumes();
 		void renderScene(SCN::Scene* scene, Camera* camera);
 
