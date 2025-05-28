@@ -24,6 +24,7 @@ namespace SCN {
 
 	class Prefab;
 	class Material;
+	class ReflectionProbeEntity;
 
 	enum class RenderPipeline {
 		FORWARD = 0,
@@ -48,32 +49,36 @@ namespace SCN {
 	public:
 		bool render_wireframe;
 		bool render_boundaries;
+
 		GFX::Texture* skybox_cubemap;
 		SCN::Scene* scene; 
 		GFX::Mesh sphere;
 
-		std::vector<SCN::PrefabEntity*> prefab_list; //lab1
-		std::vector<DrawCommand> draw_command_opaque_list; //lab1
-		std::vector<DrawCommand> draw_command_transparent_list; //lab1
+		//lab 1
+		std::vector<SCN::PrefabEntity*> prefab_list; 
+		std::vector<DrawCommand> draw_command_opaque_list; 
+		std::vector<DrawCommand> draw_command_transparent_list; 
 
-		std::vector<SCN::LightEntity*> light_list; //lab2
-		LightCommand light_command; // lab2
+		//lab 2
+		std::vector<SCN::LightEntity*> light_list;
+		LightCommand light_command; 
 		
-		std::vector<GFX::FBO*> shadow_FBOs; //lab3
-		std::vector<Camera*> camera_light_list; //lab3
-		ShadowCommand shadow_command; // lab3
+		//lab 3
+		std::vector<Camera*> camera_light_list; 
+		ShadowCommand shadow_command; 
 
+		//lab 4
 		ForwardMode current_forward_mode;
 		GbufferType current_gbuffer;
-		RenderPipeline current_pipeline; //lab4
-		DeferredCommand deferred_command; //lab4
+		RenderPipeline current_pipeline; 
+		DeferredCommand deferred_command; 
 		Lighting_Type lighting_type;
-		DeferredCommand lighting;
-		std::vector<GFX::Mesh> spheres; //lab4
+		std::vector<GFX::Mesh> spheres; 
 
+		//lab 5
 		bool is_cubemap_reflections;
 		ReflectionProbeEntity* reflection_probe;
-		
+		GFX::FBO* lighting_fbo;
 
 		//updated every frames
 		Renderer(const char* shaders_atlas_filename);
@@ -85,8 +90,6 @@ namespace SCN {
 		//parsers of the elements of the scene
 		void parseNode(SCN::Node* node, Camera* cam);
 		void parsePrefabs(std::vector<SCN::PrefabEntity*> prefab_list, Camera* camera);
-		void parseCameraLights(std::vector<SCN::LightEntity*> light_list);
-		void parseLightVolumes(std::vector<SCN::LightEntity*> light_list);
 		void parseSceneEntities(SCN::Scene* scene, Camera* camera);
 
 		//renderers of the elements of the scene
@@ -95,10 +98,11 @@ namespace SCN {
 		void renderShaderMultiPass(Camera* camera, DrawCommand draw_command, const char* shader_name) const;
 		void renderFBO(Camera* camera, GFX::FBO* fbo, const char* shader_name);
 		void renderShadow(Camera* light_camera, GFX::FBO* shadow_fbo) const;
+		void renderSphere();
 		void renderForward();
 		void renderDeferred();
-		void renderLightVolumes();
-		void renderScene(SCN::Scene* scene, Camera* camera);
+		void renderScene(SCN::Scene* scene, Camera* camera); 
+		
 
 		//to show user interface
 		void showUI();

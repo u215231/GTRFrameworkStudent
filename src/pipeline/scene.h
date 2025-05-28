@@ -100,7 +100,7 @@ namespace SCN {
 		
 		PrefabEntity();
 
-		ENTITY_METHODS(PrefabEntity, PREFAB, 11,0);
+		ENTITY_METHODS(PrefabEntity, PREFAB, 11, 0);
 
 		virtual void configure(cJSON* json);
 		virtual void serialize(cJSON* json);
@@ -118,7 +118,7 @@ namespace SCN {
 		UnknownEntity();
 		~UnknownEntity();
 
-		ENTITY_METHODS( UnknownEntity, UNKNOWN,1,0 );
+		ENTITY_METHODS(UnknownEntity, UNKNOWN, 1, 0);
 		virtual void configure(cJSON* json);
 		virtual void serialize(cJSON* json);
 		virtual const char* getTypeAsStr() { return original_type.c_str(); };
@@ -136,6 +136,7 @@ namespace SCN {
 		Camera main_camera;
 
 		Scene();
+		~Scene();
 
 		std::string filename;
 		std::string base_folder;
@@ -149,10 +150,10 @@ namespace SCN {
 		bool save(const char* filename);
 		bool toString(std::string& data);
 		bool fromString(std::string& data, const char* base_folder = nullptr);
-
+		
+		GFX::Texture* getSkyboxCubemap() const;
 		BaseEntity* getEntity(std::string name);
-
 		RayTestResult testRay( Ray& ray, uint8 layers = 0xFF );
-	};
 
+	};
 };

@@ -26,19 +26,17 @@ namespace SCN {
 		float area; //for direct;
 		vec3 direction;
 
-
-		ENTITY_METHODS(LightEntity, LIGHT, 14,4);
-
 		LightEntity();
 
+		ENTITY_METHODS(LightEntity, LIGHT, 14, 4);
+
 		//Helper to compute cos(angle) from degrees
-		inline float toCos(float deg) { return cos(deg * DEG2RAD); }
+		inline float toCos(float deg) { return (float)cos(deg * DEG2RAD); }
 		inline vec2 getConeInfo() { return vec2(cos(cone_info.x * DEG2RAD), cos(cone_info.y * DEG2RAD)); }
 
 		//Getters for spotlight angles (precomputed cosines)
 		float getCosAngleMin() const { return cone_info.x; }
 		float getCosAngleMax() const { return cone_info.y; }
-		
 
 		void configure(cJSON* json);
 		void serialize(cJSON* json);

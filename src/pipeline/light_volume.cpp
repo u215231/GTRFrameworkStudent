@@ -25,6 +25,35 @@ LightVolume::~LightVolume()
 {
 }
 
+/*
+void Renderer::parseLightVolumes(std::vector<LightEntity*> light_list)
+{
+	for (GFX::Mesh sphere : this->spheres) {
+		sphere.clear();
+	}
+	this->spheres.clear();
+	for (SCN::LightEntity* light : light_list) {
+		if (light->light_type == eLightType::POINT
+			or light->light_type == eLightType::SPOT) {
+
+			GFX::Mesh sphere;
+			sphere.createSphere(light->max_distance);
+			this->spheres.push_back(sphere);
+		}
+	}
+}
+*/
+
+/*
+// For light volumes: still in testing
+std::vector<SCN::LightEntity*> directional_light_list;
+for (SCN::LightEntity* light : this->light_list) {
+	if (light->light_type == SCN::eLightType::DIRECTIONAL) {
+		directional_light_list.push_back(light);
+	}
+}
+*/
+
 //does not work
 void LightVolume::render()
 {

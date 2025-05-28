@@ -1,4 +1,5 @@
-/*  by Javi Agenjo 2013 UPF  javi.agenjo@gmail.com
+/*  
+	by Javi Agenjo 2013 UPF  javi.agenjo@gmail.com
 
 	MAIN:
 	 + This file creates the window and the application instance. 
@@ -6,18 +7,18 @@
 	 + This is the lowest level, here we access the system to create the opengl Context
 	 + It takes all the events from SDL and redirect them to the application
 
+	Gràfics en Temps Real 2024-25
 	Dídac Hierro Soteras
 	Marc Bosch Manzano
-
-	Object Properties: texture, material, mesh
-	Liht information
-	Light transport simulation
-	Light sensors and lens
 */
 
 #include "litengine.h"
 #include "application.h"
 #include <iostream> //to output
+
+//1024, 768 default
+#define DEFAULT_WINDOW_WIDTH 1024
+#define DEFAULT_WINDOW_HEIGHT 512
 
 Application* app = NULL;
 
@@ -31,7 +32,7 @@ int main(int argc, char **argv)
 
 	//define window size
 	bool fullscreen = false; 
-	Vector2f size(1024, 576); //1024,768 default
+	Vector2f size(DEFAULT_WINDOW_WIDTH, DEFAULT_WINDOW_HEIGHT);
 	if (fullscreen)
 		size = CORE::getDesktopSize(0);
 

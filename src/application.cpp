@@ -5,6 +5,7 @@
 #include <cstdio>
 
 #include "editor.h"
+#include "pipeline/reflection_probe.h"
 #include "pipeline/light.h"
 
 std::vector<vec3> debug_points; //useful
@@ -23,6 +24,7 @@ Application::Application()
 	//add here your own entities
 	REGISTER_ENTITY_TYPE(SCN::LightEntity);
 	//...
+	REGISTER_ENTITY_TYPE(SCN::ReflectionProbeEntity);
 
 	// Create camera
 	camera = new Camera();

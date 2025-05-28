@@ -27,6 +27,11 @@ SCN::Scene::Scene()
 	instance = this;
 }
 
+SCN::Scene::~Scene()
+{
+	clear();
+}
+
 void SCN::Scene::clear()
 {
 	for (int i = 0; i < entities.size(); ++i)
@@ -57,6 +62,7 @@ bool SCN::Scene::load(const char* filename)
 	return fromString(content, base_folder.c_str());
 }
 
+//sets all entities to the scene
 bool SCN::Scene::fromString(std::string& data, const char* base_folder)
 {
 	//erase all
@@ -220,6 +226,15 @@ bool SCN::Scene::save(const char* filename)
 
 	//free memory
 	return result;
+}
+
+GFX::Texture* SCN::Scene::getSkyboxCubemap() const
+{
+	if (skybox_filename.size()) {
+		std::string filename = base_folder + "/" + skybox_filename;
+		return GFX::Texture::Get(filename.c_str());
+	}
+	return nullptr;
 }
 
 void SCN::Scene::addEntity(BaseEntity* entity)

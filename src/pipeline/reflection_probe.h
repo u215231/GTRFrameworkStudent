@@ -5,49 +5,35 @@
 
 #define NUM_FACES 6
 
-class Scene;
-
-namespace SCN {
-    class Renderer;
-}
-
 namespace GFX {
     class FBO;
     class Shader;
 }
 
-class ReflectionProbeEntity 
-{
-public:
-    GFX::Texture* cubemap;
-    int texture_unit;
-    float range;
-    float reflection_strength;
-    vec3 position;
-    GFX::FBO capture_FBOs[NUM_FACES];
+namespace SCN {
+    class Scene;
+    class BaseEntity;
+    class Renderer;
 
-    ReflectionProbeEntity();
-    ~ReflectionProbeEntity();
+    class ReflectionProbeEntity : public SCN::BaseEntity
+    {
+    public:
+        float range;
+        float reflection_strength;
+        GFX::Texture* cubemap;
+        GFX::FBO capture_FBOs[NUM_FACES];
 
-    void setPosition(const vec3& pos);
-    void captureEnvironment(SCN::Scene* scene, SCN::Renderer* renderer);
-    void uploadUniforms(GFX::Shader* shader) const;
+        ReflectionProbeEntity();
+        ~ReflectionProbeEntity();
 
-private:
-    const vec3 directions[NUM_FACES] = {
-        vec3(1, 0, 0),
-        vec3(-1, 0, 0),
-        vec3(0, 1, 0),
-        vec3(0, -1, 0),
-        vec3(0, 0, 1),
-        vec3(0, 0, -1)
+        ENTITY_METHODS(ReflectionProbeEntity, REFLECTION_PROBE, 2, 4);
+
+        void configure(cJSON* json);
+        void serialize(cJSON* json);
+
+        void captureEnvironment(SCN::Scene* scene, SCN::Renderer* renderer);
+        void uploadUniforms(GFX::Shader* shader) const;
     };
-    const vec3 up_vectors[NUM_FACES] = {
-        vec3(0, -1, 0),
-        vec3(0, -1, 0),
-        vec3(0, 0, 1),
-        vec3(0, 0, -1),
-        vec3(0, -1, 0),
-        vec3(0, -1, 0)
-    };
-};
+}
+
+

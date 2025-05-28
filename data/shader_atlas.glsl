@@ -6,6 +6,8 @@ skybox basic.vs skybox.fs
 depth quad.vs depth.fs
 multi basic.vs multi.fs
 plain basic.vs plain.fs
+
+sphere basic.vs sphere.fs
         
 gbuffer_fill basic.vs gbuffer_fill.fs
 deferred_light_pass quad.vs deferred_light_pass.fs
@@ -20,7 +22,8 @@ environment_reflections basic.vs environment_reflections.fs
 
 // Lighting types
 #define PHONG 0 
-#define PYSICAL_BASED_RENDER 1
+#define PBR 1
+#define PBR_PROBES 2
 
 // Light types
 #define NO_LIGHT 0
@@ -35,7 +38,7 @@ const float PI = 3.14159265359;
 
 vec3 correct_light_position(vec3 light_position, vec3 world_position, int type)
 {
-	 return light_position - world_position * float(type != DIRECTIONAL_LIGHT);
+	return light_position - world_position * float(type != DIRECTIONAL_LIGHT);
 }
 
 vec3 compute_intensified_color(vec3 light_color, float light_intensity)
@@ -65,11 +68,12 @@ float angular_attenuation(vec3 light_position, vec3 light_direction, vec2 light_
 
 float compute_attenuation(vec3 light_position, vec3 light_direction, vec2 light_cos_angle, int type)
 {
+	if (type == DIRECTIONAL_LIGHT)
+		return 1.0;
 	if (type == POINT_LIGHT)	
 		return quadratic_attenuation(light_position);
 	if (type == SPOT_LIGHT)
 		return angular_attenuation(light_position, light_direction, light_cos_angle);
-	return 1.0;
 }
 
 float compute_shadow(sampler2D shadow_map, mat4 shadow_viewprojection, float shadow_bias, vec3 world_position, int type) 
@@ -114,9 +118,10 @@ float comp_D(float alpha_sq, float N_dot_H)
 	return alpha_sq / (PI * pow(pow(N_dot_H,2.0) * (alpha_sq - 1.0) + 1.0, 2.0));
 }
 
-float comp_G(float N_dot_V, float N_dot_L, float alpha){
-	float G_V = N_dot_V / (N_dot_V * (1.0 - alpha/2) + alpha/2);
-    float G_L = N_dot_L / (N_dot_L * (1.0 - alpha/2) + alpha/2);
+float comp_G(float N_dot_V, float N_dot_L, float alpha)
+{
+	float G_V = N_dot_V / (N_dot_V * (1.0 - alpha/2.0) + alpha/2.0);
+    float G_L = N_dot_L / (N_dot_L * (1.0 - alpha/2.0) + alpha/2.0);
     return (G_V * G_L);
 }
 
@@ -133,10 +138,10 @@ vec3 compute_pbr(vec3 light_position, vec3 camera_position,
 	float alpha = rp * rp;
 	float alpha_sq = pow(alpha, 2.0);
 
-	float N_dot_L = clamp(dot(N, L), 0.0, 1.0);
-	float N_dot_V = clamp(dot(N, V), 0.0, 1.0);
-	float H_dot_V = clamp(dot(H, V), 0.0, 1.0);
-	float N_dot_H = clamp(dot(N, H), 0.0, 1.0);
+	float N_dot_L = clamp(dot(N, L), 0.0001, 1.0);
+	float N_dot_V = clamp(dot(N, V), 0.0001, 1.0);
+	float H_dot_V = clamp(dot(H, V), 0.0001, 1.0);
+	float N_dot_H = clamp(dot(N, H), 0.0001, 1.0);
 
 	vec3 fresnel  = comp_F(F0, H_dot_V);
 	float distribution  = comp_D(alpha_sq, N_dot_H);
@@ -146,7 +151,7 @@ vec3 compute_pbr(vec3 light_position, vec3 camera_position,
 	float denom = max((4.0 * N_dot_L * N_dot_V), 0.0001);
 	vec3 specular_component = (fresnel * distribution * geometry) / denom;
 
-	return vec3((diffuse_component + specular_component) * N_dot_L);
+	return vec3((specular_component + diffuse_component) * N_dot_L);
 }
 
 vec3 compute_pbr_probes(vec3 light_position, vec3 camera_position, 
@@ -163,29 +168,30 @@ vec3 compute_pbr_probes(vec3 light_position, vec3 camera_position,
 	float alpha = rp * rp;
 	float alpha_sq = pow(alpha, 2.0);
 
-	float N_dot_L = clamp(dot(N, L), 0.0, 1.0);
-	float N_dot_V = clamp(dot(N, V), 0.0, 1.0);
-	float H_dot_V = clamp(dot(H, V), 0.0, 1.0);
-	float N_dot_H = clamp(dot(N, H), 0.0, 1.0);
+	float N_dot_L = clamp(dot(N, L), 0.0001, 1.0);
+	float N_dot_V = clamp(dot(N, V), 0.0001, 1.0);
+	float H_dot_V = clamp(dot(H, V), 0.0001, 1.0);
+	float N_dot_H = clamp(dot(N, H), 0.0001, 1.0);
 
 	vec3 fresnel  = comp_F(F0, H_dot_V);
-	float ref_str = mix(reflection_strength, 1.0, metalness); //(Ref Probes)
-	vec3 reflections = fresnel * reflection_color * ref_str; //(Ref Probes)
-
 	float distribution  = comp_D(alpha_sq, N_dot_H);
 	float geometry = comp_G(N_dot_V, N_dot_L, alpha);
 
 	vec3 diffuse_component = N_dot_L * vec3(1.0);
 	float denom = max((4.0 * N_dot_L * N_dot_V), 0.0001);
 	vec3 specular_component = (fresnel * distribution * geometry) / denom;
+
+	float ref_str = reflection_strength; // mix(reflection_strength, 1.0, metalness); //(Ref Probes)
+	vec3 reflections = fresnel * reflection_color * ref_str; //(Ref Probes)
 	specular_component += reflections * (1.0 - roughness); //(Ref Probes) COMENTAT PQ NO FUNCIONA
 
-	return vec3((diffuse_component + specular_component) * N_dot_L);
+	return vec3((specular_component + diffuse_component) * N_dot_L);
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
 \test.cs
+
 #version 430 core
 
 layout(local_size_x = 1, local_size_y = 1, local_size_z = 1) in;
@@ -326,19 +332,15 @@ uniform float u_alpha_cutoff;
 
 out vec4 FragColor;
 
-uniform sampler2D u_albedo_texture;
-layout(location = 0) out vec4 gbuffer_albedo_roughness_map;
-
 void main()
 {
 	vec4 color = u_color;
-	color *= texture(u_albedo_texture, v_uv);
+	color *= texture(u_texture, v_uv);
 
 	if(color.a < u_alpha_cutoff)
 		discard;
 
 	FragColor = color;
-	gbuffer_albedo_roughness_map = color;
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -352,6 +354,7 @@ in vec3 v_world_position;
 
 uniform samplerCube u_texture;
 uniform vec3 u_camera_position;
+
 out vec4 FragColor;
 
 layout(location = 0) out vec4 gbuffer_albedo_map;
@@ -365,6 +368,32 @@ void main()
 
 	gbuffer_albedo_map = color;
 	gbuffer_normal_map = vec4( vec3(0.0), 1.0 );
+}
+
+////////////////////////////////////////////////////////////////////////////////////////////////////
+
+\sphere.fs
+
+#version 330 core
+
+in vec3 v_position;
+in vec3 v_normal;
+in vec3 v_world_position;
+
+uniform samplerCube u_reflection_probe;
+uniform vec3 u_probe_position;
+uniform vec3 u_camera_position;
+
+out vec4 FragColor;
+
+void main()
+{
+	vec3 N = normalize(v_normal);
+	vec3 V = normalize(u_camera_position - v_world_position);
+	vec3 R = reflect(-V, N);
+
+	vec4 color = texture(u_reflection_probe, R);
+	FragColor = color;
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -436,6 +465,7 @@ void main()
 	//Some alpha testing would be good here
 	FragColor = vec4(0.0, 0.0, 0.0, 1.0);
 }
+
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////
 
@@ -540,6 +570,7 @@ uniform samplerCube u_reflection_probe;
 uniform float u_reflection_strength;
 uniform vec3 u_probe_position;
 uniform float u_probe_range;
+uniform int u_pbr_probes;
 
 // Shading
 uniform int u_num_shadows;
@@ -578,6 +609,7 @@ void main()
 
 	vec3 F0 = mix(vec3(0.04), albedo, metalness);
 
+	// Debug: ask to Juan wht the world_position and positon are different.
 	vec3 position = texture(u_gbuffer_position, uv).xyz;
 	float shadow = texture(u_gbuffer_shadow, uv).r;
     
@@ -588,22 +620,23 @@ void main()
 	vec3 world_position = not_norm_world_pos.xyz / not_norm_world_pos.w;
 
 	vec3 view_dir = normalize(world_position - u_camera_position);
-	vec3 reflect_dir = reflect(-view_dir, normal);
+	vec3 reflect_dir = reflect(view_dir, normal);
 	vec3 reflection_color = texture(u_reflection_probe, reflect_dir).rgb;
 
 	// Debug: Test cubemap sampling with fixed direction
-	vec3 test_dir = vec3(0.0, 1.0, 0.0); // Sample top face
-	vec3 test_color = texture(u_reflection_probe, test_dir).rgb;
+	// vec3 test_dir = vec3(0.0, 1.0, 0.0); // Sample top face
+	// vec3 test_color = texture(u_reflection_probe, test_dir).rgb;
 	
 	vec3 total_accumulation = vec3(0.0);
 	vec3 pbr;
 	int s = 0;
+
 	for (int i = 0; i < u_num_lights && i < MAX_NUM_LIGHTS; ++i) 
 	{
 		if (u_light_types[i] == NO_LIGHT)
 			continue;
 		
-		vec3 light_position = correct_light_position(u_light_positions[i], world_position, u_light_types[i]);
+		vec3 light_position = u_light_types[i] == DIRECTIONAL_LIGHT ? u_light_directions[i] : u_light_positions[i] - world_position;
 
 		vec3 accumulation = vec3(1.0);
 		accumulation *= compute_attenuation(light_position, u_light_directions[i], u_light_cos_angles[i], u_light_types[i]);
@@ -612,20 +645,20 @@ void main()
 
 		if (u_lighting_type == PHONG) 
 			accumulation *= compute_phong(light_position, u_camera_position, world_position, normal, shininess);
-		//if (u_lighting_type == PBR)
-		//	accumulation *= compute_pbr(light_position, u_camera_position, world_position, normal, roughness, F0);
-		else
+
+		if (u_lighting_type == PBR && !bool(u_pbr_probes))
+			accumulation *= compute_pbr(light_position, u_camera_position, world_position, normal, roughness, F0);
+		
+		if (u_lighting_type == PBR && bool(u_pbr_probes))
 			accumulation *= compute_pbr_probes(light_position, u_camera_position, world_position, normal, 
-			                                   roughness, F0, reflection_color, u_reflection_strength, metalness);
+											   roughness, F0, reflection_color, u_reflection_strength, metalness);		
 		
 		total_accumulation += accumulation;
 
 		if (u_light_types[i] != POINT_LIGHT)  
 			s++;
-
 	}
-	if (u_lighting_type == PHONG)
-		total_accumulation += u_light_ambient;
+	total_accumulation += u_light_ambient;
 
 	color.xyz *= total_accumulation;
 	FragColor = color;
@@ -694,6 +727,8 @@ void main()
 	vec3 albedo_srgb = texture(u_albedo_texture, v_uv).rgb;
 	vec3 albedo = pow(albedo_srgb, vec3(2.2)); //convert sRGB to linear
 	vec3 F0 = mix(vec3(0.04), albedo, metalness);
+	vec3 world_position = v_world_position;
+	vec3 normal = v_normal;
 
 	vec4 color = u_color * texture(u_albedo_texture, v_uv );
 	if (color.a < u_alpha_cutoff)
@@ -707,16 +742,16 @@ void main()
 		if (u_light_types[i] == NO_LIGHT)
 			continue;
 
-		vec3 light_position = correct_light_position(u_light_positions[i], v_world_position, u_light_types[i]);
+		vec3 light_position = u_light_types[i] == DIRECTIONAL_LIGHT ? u_light_directions[i] : u_light_positions[i] - world_position;
 
 		vec3 accumulation = vec3(1.0);
 		accumulation *= compute_attenuation(light_position, u_light_directions[i], u_light_cos_angles[i], u_light_types[i]);
-		accumulation *= compute_shadow(u_shadow_maps[s], u_shadow_vps[s], u_shadow_biases[s], v_world_position, u_light_types[i]);
+		accumulation *= compute_shadow(u_shadow_maps[s], u_shadow_vps[s], u_shadow_biases[s], world_position, u_light_types[i]);
 		accumulation *= compute_intensified_color(u_light_colors[i], u_light_intensities[i]);
 		if (u_lighting_type == PHONG) 
-			accumulation *= compute_phong(light_position, u_camera_position, v_world_position, v_normal, u_shininess);
+			accumulation *= compute_phong(light_position, u_camera_position, world_position, normal, u_shininess);
 		else
-			accumulation *= compute_pbr(light_position, u_camera_position, v_world_position, v_normal, roughness, F0);
+			accumulation *= compute_pbr(light_position, u_camera_position, world_position, normal, roughness, F0);
 		
 		total_accumulation += accumulation;
 
@@ -774,18 +809,21 @@ out vec4 FragColor;
 
 void main()
 {
+	vec3 normal = v_normal;
+	vec3 world_position = v_world_position;
+
 	vec4 color = u_color * texture( u_texture, v_uv);
 	if (color.a < u_alpha_cutoff)
 		discard;
 	
-	vec3 light_position = correct_light_position(u_light_position, v_world_position, u_light_type);
+	vec3 light_position = u_light_type == DIRECTIONAL_LIGHT ? u_light_direction : u_light_position - world_position;
 
 	vec3 accumulation = vec3(1.0);
 
-	accumulation *= compute_phong(light_position, u_camera_position, v_world_position, v_normal, u_shininess);
+	accumulation *= compute_phong(light_position, u_camera_position, world_position, normal, u_shininess);
 	accumulation *= compute_attenuation(light_position, u_light_direction, u_light_cos_angle, u_light_type);
 	accumulation *= compute_intensified_color(u_light_color, u_light_intensity);
-	accumulation *= compute_shadow(u_shadow_map, u_shadow_vp, u_shadow_bias, v_world_position, u_light_type);
+	accumulation *= compute_shadow(u_shadow_map, u_shadow_vp, u_shadow_bias, world_position, u_light_type);
 	accumulation += u_light_ambient * float(u_light_num == 0);
 
 	color.xyz *= accumulation;

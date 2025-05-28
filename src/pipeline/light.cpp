@@ -88,6 +88,7 @@ Camera* SCN::LightEntity::getCamera()
 	if (this->light_type == SCN::eLightType::SPOT) {
 		camera->setPerspective(2.0f * this->cone_info.y, 1.0f, near_plane, far_plane);
 	}
+
 	return camera;
 }
 
