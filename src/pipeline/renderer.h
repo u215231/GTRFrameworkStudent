@@ -79,6 +79,7 @@ namespace SCN {
 		bool is_cubemap_reflections;
 		ReflectionProbeEntity* reflection_probe;
 		GFX::FBO* lighting_fbo;
+		bool update_ref;
 
 		//updated every frames
 		Renderer(const char* shaders_atlas_filename);

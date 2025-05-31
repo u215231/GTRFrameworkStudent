@@ -51,6 +51,7 @@ Renderer::Renderer(const char* shader_atlas_filename)
 	this->render_wireframe = false;
 	this->render_boundaries = false;
 	this->is_cubemap_reflections = true;
+	this->update_ref = true;
 }
 
 Renderer::~Renderer()
@@ -295,9 +296,9 @@ void Renderer::renderSphere()
 	shader->setUniform("u_viewprojection", camera->viewprojection_matrix);
 	shader->setUniform("u_camera_position", camera->eye);
 
-	if (this->is_cubemap_reflections) {
-		this->reflection_probe->uploadUniforms(shader);
-	}
+
+	this->reflection_probe->uploadUniforms(shader);
+
 
 	if (this->render_wireframe)
 		glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
@@ -431,9 +432,9 @@ void Renderer::renderDeferred()
 	this->deferred_command.uploadTextures(shader);
 
 	//send cubemap reflections
-	if (this->is_cubemap_reflections) {
-		this->reflection_probe->uploadUniforms(shader);
-	}
+
+	this->reflection_probe->uploadUniforms(shader);
+	
 
 	//glDisable(GL_DEPTH_TEST);
 
@@ -456,10 +457,6 @@ void Renderer::renderScene(Scene* scene, Camera* camera)
 	this->setupScene();
 	this->parseSceneEntities(scene, camera);
 
-	if (this->is_cubemap_reflections) {
-		this->reflection_probe->captureEnvironment(scene, this);
-	}
-
 	this->shadow_command.renderShadows(this);
 
 	switch (this->current_pipeline) {
@@ -475,6 +472,11 @@ void Renderer::renderScene(Scene* scene, Camera* camera)
 			//this->renderLightVolumes();
 			break;
 	}
+
+	if (this->update_ref) {
+		this->reflection_probe->captureEnvironment(scene, this);
+		this->update_ref = false;
+	}
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -487,24 +489,6 @@ void Renderer::showUI()
 {
 	ImGui::Checkbox("Wireframe", &this->render_wireframe);
 	ImGui::Checkbox("Boundaries", &this->render_boundaries);
-	
-	//shadow bias UI
-	static int selected_light = 0;
-	int num_shadows = this->shadow_command.num_shadows;
-	if (num_shadows > 0) {
-		ImGui::Separator();
-		ImGui::Text("Shadow Bias Editor");
-
-		//light selector
-		ImGui::SliderInt("Shadow Index", &selected_light, 0, num_shadows - 1);
-
-		//clamp selected_light to valid range
-		selected_light = std::clamp(selected_light, 0, num_shadows - 1);
-
-		//bias slider
-		float& bias = this->shadow_command.biases[selected_light];
-		ImGui::SliderFloat("Bias", &bias, 0.0001f, 0.1f, "%.5f");
-	}
 
 	//render mode UI
 	static int selected_mode = (int)this->current_pipeline;
@@ -523,12 +507,37 @@ void Renderer::showUI()
 
 	//lighting type UI
 	if ((this->current_pipeline == RenderPipeline::FORWARD
-	and	this->current_forward_mode != ForwardMode::MULTI_PASS) 
-	or this->current_pipeline != RenderPipeline::FORWARD) {
+		and this->current_forward_mode != ForwardMode::MULTI_PASS)
+		or this->current_pipeline != RenderPipeline::FORWARD) {
 		static int lighting = (int)this->lighting_type;
 		ImGui::Text("Lighting Type Selector\n(0 Phong, 1 PBR)");
 		ImGui::SliderInt("Lighting", &lighting, 0, 1);
 		this->lighting_type = (Lighting_Type)lighting;
+	}
+
+	//ambient Light Slider
+	ImGui::Separator();
+	ImGui::Text("Ambient Light");
+	ImGui::SliderFloat("Ambient R", &this->scene->ambient_light.x, 0.0f, 1.0f);
+	ImGui::SliderFloat("Ambient G", &this->scene->ambient_light.y, 0.0f, 1.0f);
+	ImGui::SliderFloat("Ambient B", &this->scene->ambient_light.z, 0.0f, 1.0f);
+
+	//shadow bias UI
+	static int selected_light = 0;
+	int num_shadows = this->shadow_command.num_shadows;
+	if (num_shadows > 0) {
+		ImGui::Separator();
+		ImGui::Text("Shadow Bias Editor");
+
+		//light selector
+		ImGui::SliderInt("Shadow Index", &selected_light, 0, num_shadows - 1);
+
+		//clamp selected_light to valid range
+		selected_light = std::clamp(selected_light, 0, num_shadows - 1);
+
+		//bias slider
+		float& bias = this->shadow_command.biases[selected_light];
+		ImGui::SliderFloat("Bias", &bias, 0.0001f, 0.1f, "%.5f");
 	}
 
 	//activate cubemap reflections
@@ -538,18 +547,19 @@ void Renderer::showUI()
 	ImGui::SliderInt("Cubemap", &cubemap_reflection_mode, 0, 1);
 	this->is_cubemap_reflections = (bool)cubemap_reflection_mode;
 
+	//Capture reflections updater
+	ImGui::Separator();
+	if (ImGui::Button("Update Reflections")) {
+		this->update_ref = true;
+	}
+
 	//reflection strenght slider
 	float strength = this->reflection_probe->reflection_strength;
 	ImGui::Separator();
 	ImGui::Text("Reflection Strength");
-	ImGui::SliderFloat("Strength", &strength, 0.0f, 30.0f);
+	ImGui::SliderFloat("Strength", &strength, 0.0f, 50.0f);
 	this->reflection_probe->reflection_strength = strength;
 
-	//ambient Light Slider
-	ImGui::Separator();
-	ImGui::SliderFloat("Ambient R", &this->scene->ambient_light.x, 0.0f, 1.0f);
-	ImGui::SliderFloat("Ambient G", &this->scene->ambient_light.y, 0.0f, 1.0f);
-	ImGui::SliderFloat("Ambient B", &this->scene->ambient_light.z, 0.0f, 1.0f);
 }
 
 #else
