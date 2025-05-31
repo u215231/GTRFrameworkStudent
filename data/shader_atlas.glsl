@@ -177,15 +177,16 @@ vec3 compute_pbr_probes(vec3 light_position, vec3 camera_position,
 	float distribution  = comp_D(alpha_sq, N_dot_H);
 	float geometry = comp_G(N_dot_V, N_dot_L, alpha);
 
-	vec3 diffuse_component = N_dot_L * vec3(1.0);
+	vec3 kD = vec3(1.0 - metalness); //(Ref Probes)
+	vec3 diffuse_component = N_dot_L * kD; //(Ref Probes)
 	float denom = max((4.0 * N_dot_L * N_dot_V), 0.0001);
 	vec3 specular_component = (fresnel * distribution * geometry) / denom;
 
-	float ref_str = reflection_strength; // mix(reflection_strength, 1.0, metalness); //(Ref Probes)
+	float ref_str = mix(reflection_strength, 1.0, metalness); //(Ref Probes)
 	vec3 reflections = fresnel * reflection_color * ref_str; //(Ref Probes)
-	specular_component += reflections * (1.0 - roughness); //(Ref Probes) COMENTAT PQ NO FUNCIONA
+	specular_component += reflections * (1.0 - roughness); //(Ref Probes)
 
-	return vec3((specular_component + diffuse_component) * N_dot_L);
+	return (specular_component + diffuse_component) * N_dot_L;
 }
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////

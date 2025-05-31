@@ -72,7 +72,7 @@ void ReflectionProbeEntity::captureEnvironment(SCN::Scene* scene, SCN::Renderer*
     for (int face = 0; face < NUM_FACES; face++) {
         cam.lookAt(cam.eye, cam.eye + directions[face], up_vectors[face]);
         capture_FBOs[face].setTexture(cubemap, face);
-        renderer->renderFBO(&cam, &capture_FBOs[face], "texture");
+        renderer->renderFBO(&cam, &capture_FBOs[face], "forward_light_single_pass");
     }
 
     glEnable(GL_TEXTURE_CUBE_MAP_SEAMLESS);
