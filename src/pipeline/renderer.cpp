@@ -538,6 +538,13 @@ void Renderer::showUI()
 	ImGui::SliderInt("Cubemap", &cubemap_reflection_mode, 0, 1);
 	this->is_cubemap_reflections = (bool)cubemap_reflection_mode;
 
+	//reflection strenght slider
+	float strength = this->reflection_probe->reflection_strength;
+	ImGui::Separator();
+	ImGui::Text("Reflection Strength");
+	ImGui::SliderFloat("Strength", &strength, 0.0f, 30.0f);
+	this->reflection_probe->reflection_strength = strength;
+
 	//ambient Light Slider
 	ImGui::Separator();
 	ImGui::SliderFloat("Ambient R", &this->scene->ambient_light.x, 0.0f, 1.0f);
