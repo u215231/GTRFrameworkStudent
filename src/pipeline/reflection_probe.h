@@ -18,10 +18,11 @@ namespace SCN {
     class ReflectionProbeEntity : public SCN::BaseEntity
     {
     public:
+        vec3 position;
         float range;
         float reflection_strength;
         GFX::Texture* cubemap;
-        GFX::FBO capture_FBOs[NUM_FACES];
+        GFX::FBO capture_fbo;
 
         ReflectionProbeEntity();
         ~ReflectionProbeEntity();
@@ -33,6 +34,7 @@ namespace SCN {
 
         void captureEnvironment(SCN::Scene* scene, SCN::Renderer* renderer);
         void uploadUniforms(GFX::Shader* shader) const;
+        void setPosition(const vec3& pos);
     };
 }
 

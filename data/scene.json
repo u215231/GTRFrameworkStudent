@@ -154,13 +154,6 @@
 			"area": 10,
 			"light_type": "DIRECTIONAL",
 			"type": "LIGHT"
-		},
-		{
-			"name": "reflection_probe",
-			"position": [ -1.0, 0.5, 0.0 ],
-			"range": 10.0,
-      "reflection_strength": 20.0,
-			"type": "REFLECTION_PROBE"
 		}
 	]
 }

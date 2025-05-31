@@ -77,9 +77,15 @@ namespace SCN {
 
 		//lab 5
 		bool is_cubemap_reflections;
-		ReflectionProbeEntity* reflection_probe;
+		//ReflectionProbeEntity* reflection_probe;
 		GFX::FBO* lighting_fbo;
 		bool update_ref;
+		vec3 probe_grid_origin;      //starting point of the grid
+		vec3 probe_grid_dimensions;  //how many probes in each axis
+		float probe_spacing; //X units between probes
+		std::vector<ReflectionProbeEntity*> reflection_probes;
+		ReflectionProbeEntity* closest_probe;
+
 
 		//updated every frames
 		Renderer(const char* shaders_atlas_filename);

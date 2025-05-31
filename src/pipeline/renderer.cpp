@@ -26,7 +26,7 @@ Renderer::Renderer(const char* shader_atlas_filename)
 
 	this->scene = nullptr;
 	this->skybox_cubemap = nullptr;
-	this->reflection_probe = nullptr;
+	//this->reflection_probe = nullptr;
 
 	if (!GFX::Shader::LoadAtlas(shader_atlas_filename))
 		exit(1);
@@ -52,6 +52,13 @@ Renderer::Renderer(const char* shader_atlas_filename)
 	this->render_boundaries = false;
 	this->is_cubemap_reflections = true;
 	this->update_ref = true;
+
+	this->probe_grid_dimensions = vec3(2.0, 2.0, 1.0);
+	this->probe_spacing = 2.0f;
+	vec3 grid_size = probe_grid_dimensions * probe_spacing;
+	vec3 half_grid = grid_size * 0.5f;
+	this->probe_grid_origin = vec3(0.0) - half_grid;
+	this->closest_probe = nullptr;
 }
 
 Renderer::~Renderer()
@@ -59,12 +66,26 @@ Renderer::~Renderer()
 	delete this->scene;
 	delete this->skybox_cubemap;
 	delete this->lighting_fbo;
-	delete this->reflection_probe;
+	//delete this->reflection_probe;
 }
 
 void Renderer::setupScene()
 {
 	this->skybox_cubemap = this->scene->getSkyboxCubemap();
+
+	for (int x = 0; x < probe_grid_dimensions.x; ++x)
+		for (int y = 0; y < probe_grid_dimensions.y; ++y)
+			for (int z = 0; z < probe_grid_dimensions.z; ++z) {
+				vec3 pos = probe_grid_origin + vec3(x, y, z) * probe_spacing;
+
+				ReflectionProbeEntity* probe = new ReflectionProbeEntity();
+				probe->setPosition(pos);
+				probe->range = probe_spacing * 1.5f; //give overlap
+
+				probe->captureEnvironment(this->scene, this); //only once!
+
+				this->reflection_probes.push_back(probe);
+			}
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -133,7 +154,8 @@ void Renderer::parseSceneEntities(Scene* scene, Camera* camera)
 				this->light_list.push_back((LightEntity*)entity); 
 				break;
 			case eEntityType::REFLECTION_PROBE:
-				this->reflection_probe = (ReflectionProbeEntity*)entity;  
+				//this->reflection_probe = (ReflectionProbeEntity*)entity;  
+				this->reflection_probes.push_back((ReflectionProbeEntity*)entity);
 				break;
 		}
 	}
@@ -286,9 +308,12 @@ void Renderer::renderSphere()
 
 	Matrix44 m;
 	m.setTranslation(
-		this->reflection_probe->root.model.getTranslation().x,
+		/*this->reflection_probe->root.model.getTranslation().x,
 		this->reflection_probe->root.model.getTranslation().y, 
-		this->reflection_probe->root.model.getTranslation().z
+		this->reflection_probe->root.model.getTranslation().z*/
+		this->reflection_probes[0]->root.model.getTranslation().x,
+		this->reflection_probes[0]->root.model.getTranslation().y,
+		this->reflection_probes[0]->root.model.getTranslation().z
 	);
 	m.scale(0.25, 0.25, 0.25);
 	
@@ -297,7 +322,7 @@ void Renderer::renderSphere()
 	shader->setUniform("u_camera_position", camera->eye);
 
 
-	this->reflection_probe->uploadUniforms(shader);
+	this->reflection_probes[0]->uploadUniforms(shader);
 
 
 	if (this->render_wireframe)
@@ -432,9 +457,22 @@ void Renderer::renderDeferred()
 	this->deferred_command.uploadTextures(shader);
 
 	//send cubemap reflections
+	//this->reflection_probe->uploadUniforms(shader);
+	vec3 camera_pos = Camera::current->eye;
+	float best_dist = FLT_MAX;
 
-	this->reflection_probe->uploadUniforms(shader);
-	
+	for (auto* probe : this->reflection_probes) {
+		float dist = (probe->position - camera_pos).length();
+		if (dist <= best_dist) {
+			best_dist = dist;
+			this->closest_probe = probe;
+		}
+	}
+
+	if (this->closest_probe != nullptr) {
+		this->closest_probe->uploadUniforms(shader);
+	}
+
 
 	//glDisable(GL_DEPTH_TEST);
 
@@ -474,7 +512,9 @@ void Renderer::renderScene(Scene* scene, Camera* camera)
 	}
 
 	if (this->update_ref) {
-		this->reflection_probe->captureEnvironment(scene, this);
+		for (auto* probe : this->reflection_probes) {
+			probe->captureEnvironment(scene, this);
+		}
 		this->update_ref = false;
 	}
 }
@@ -554,11 +594,11 @@ void Renderer::showUI()
 	}
 
 	//reflection strenght slider
-	float strength = this->reflection_probe->reflection_strength;
+	float strength = this->closest_probe->reflection_strength;
 	ImGui::Separator();
 	ImGui::Text("Reflection Strength");
 	ImGui::SliderFloat("Strength", &strength, 0.0f, 50.0f);
-	this->reflection_probe->reflection_strength = strength;
+	this->closest_probe->reflection_strength = strength;
 
 }
 

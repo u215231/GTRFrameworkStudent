@@ -12,17 +12,16 @@ using namespace SCN;
 
 ReflectionProbeEntity::ReflectionProbeEntity() 
 {
-    const int w = 512;
-    const int h = 512;
+    const int w = 206;
+    const int h = 206;
 
     range = 10.0f;
-    reflection_strength = 0.5f; 
+    reflection_strength = 40.0f; 
     cubemap = new GFX::Texture();
-    cubemap->createCubemap(w, h, NULL, GL_RGB, GL_UNSIGNED_INT, true);	
+    cubemap->createCubemap(w, h, NULL, GL_RGB, GL_UNSIGNED_INT, true);
+    
+    capture_fbo.create(w, h, 1, GL_RGBA, GL_UNSIGNED_BYTE, true);
 
-    for (int face = 0; face < NUM_FACES; face++) {
-        capture_FBOs[face].create(w, h, 1, GL_RGBA, GL_UNSIGNED_BYTE, true);
-    }
 }
 
 ReflectionProbeEntity::~ReflectionProbeEntity() 
@@ -71,8 +70,8 @@ void ReflectionProbeEntity::captureEnvironment(SCN::Scene* scene, SCN::Renderer*
 
     for (int face = 0; face < NUM_FACES; face++) {
         cam.lookAt(cam.eye, cam.eye + directions[face], up_vectors[face]);
-        capture_FBOs[face].setTexture(cubemap, face);
-        renderer->renderFBO(&cam, &capture_FBOs[face], "forward_light_single_pass");
+        capture_fbo.setTexture(cubemap, face);
+        renderer->renderFBO(&cam, &capture_fbo, "forward_light_single_pass");
     }
 
     glEnable(GL_TEXTURE_CUBE_MAP_SEAMLESS);
@@ -83,6 +82,10 @@ void ReflectionProbeEntity::uploadUniforms(GFX::Shader* shader) const
 {
     shader->setUniform("u_reflection_probe", cubemap, 10);
     shader->setUniform("u_reflection_strength", reflection_strength); 
-    shader->setUniform("u_probe_position", root.model.getTranslation());
+    shader->setUniform("u_probe_position", root.model.getTranslation()); //root.model.getTranslation()); //position);
     shader->setUniform("u_probe_range", range);
+}
+
+void ReflectionProbeEntity::setPosition(const vec3& pos) {
+    this->position = pos;
 }
