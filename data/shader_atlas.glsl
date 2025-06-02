@@ -177,14 +177,14 @@ vec3 compute_pbr_probes(vec3 light_position, vec3 camera_position,
 	float distribution  = comp_D(alpha_sq, N_dot_H);
 	float geometry = comp_G(N_dot_V, N_dot_L, alpha);
 
-	vec3 kD = vec3(1.0 - metalness); //(Ref Probes)
+	vec3 kD = vec3(sqrt(sqrt(1.0 - metalness))); //(Ref Probes)
 	vec3 diffuse_component = N_dot_L * kD; //(Ref Probes)
 	float denom = max((4.0 * N_dot_L * N_dot_V), 0.0001);
 	vec3 specular_component = (fresnel * distribution * geometry) / denom;
 
 	float ref_str = mix(reflection_strength, 1.0, metalness); //(Ref Probes)
 	vec3 reflections = fresnel * reflection_color * ref_str; //(Ref Probes)
-	specular_component += reflections * (1.0 - roughness); //(Ref Probes)
+	specular_component += reflections * sqrt((1.0 - roughness)); //(Ref Probes)
 
 	return (specular_component + diffuse_component) * N_dot_L;
 }
@@ -631,6 +631,9 @@ void main()
 	vec3 total_accumulation = vec3(0.0);
 	vec3 pbr;
 	int s = 0;
+	vec3 V = normalize(u_camera_position - world_position);
+	vec3 N = normalize(normal);
+	vec3 R = reflect(V,N);
 
 	for (int i = 0; i < u_num_lights && i < MAX_NUM_LIGHTS; ++i) 
 	{
@@ -651,8 +654,7 @@ void main()
 			accumulation *= compute_pbr(light_position, u_camera_position, world_position, normal, roughness, F0);
 		
 		if (u_lighting_type == PBR && bool(u_pbr_probes))
-			accumulation *= compute_pbr_probes(light_position, u_camera_position, world_position, normal, 
-											   roughness, F0, reflection_color, u_reflection_strength, metalness);		
+			accumulation *= compute_pbr_probes(light_position, u_camera_position, world_position, normal, roughness, F0, reflection_color, u_reflection_strength, metalness); //* textureLod(u_reflection_probe, R, roughness * 5.0 ).xyz;	
 		
 		total_accumulation += accumulation;
 
@@ -753,6 +755,7 @@ void main()
 			accumulation *= compute_phong(light_position, u_camera_position, world_position, normal, u_shininess);
 		else
 			accumulation *= compute_pbr(light_position, u_camera_position, world_position, normal, roughness, F0);
+;
 		
 		total_accumulation += accumulation;
 

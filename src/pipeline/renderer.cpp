@@ -51,14 +51,25 @@ Renderer::Renderer(const char* shader_atlas_filename)
 	this->render_wireframe = false;
 	this->render_boundaries = false;
 	this->is_cubemap_reflections = true;
-	this->update_ref = true;
+	this->update_ref = false;
 
-	this->probe_grid_dimensions = vec3(2.0, 2.0, 1.0);
-	this->probe_spacing = 2.0f;
+	this->probe_grid_dimensions = vec3(3.0, 1.0, 3.0);
+	this->probe_spacing = 1.5f;
 	vec3 grid_size = probe_grid_dimensions * probe_spacing;
 	vec3 half_grid = grid_size * 0.5f;
-	this->probe_grid_origin = vec3(0.0) - half_grid;
+	this->probe_grid_origin = vec3(0.0, 1.25, 0.0) - half_grid;
 	this->closest_probe = nullptr;
+
+	for (int x = 0; x <= probe_grid_dimensions.x; ++x)
+		for (int y = 0; y <= probe_grid_dimensions.y; ++y)
+			for (int z = 0; z <= probe_grid_dimensions.z; ++z) {
+				vec3 pos = probe_grid_origin + vec3(x, y, z) * probe_spacing;
+
+				ReflectionProbeEntity* probe = new ReflectionProbeEntity();
+				probe->setPosition(pos);
+				probe->range = probe_spacing * 1.5f;
+				this->reflection_probes.push_back(probe);
+			}
 }
 
 Renderer::~Renderer()
@@ -72,20 +83,6 @@ Renderer::~Renderer()
 void Renderer::setupScene()
 {
 	this->skybox_cubemap = this->scene->getSkyboxCubemap();
-
-	for (int x = 0; x < probe_grid_dimensions.x; ++x)
-		for (int y = 0; y < probe_grid_dimensions.y; ++y)
-			for (int z = 0; z < probe_grid_dimensions.z; ++z) {
-				vec3 pos = probe_grid_origin + vec3(x, y, z) * probe_spacing;
-
-				ReflectionProbeEntity* probe = new ReflectionProbeEntity();
-				probe->setPosition(pos);
-				probe->range = probe_spacing * 1.5f; //give overlap
-
-				probe->captureEnvironment(this->scene, this); //only once!
-
-				this->reflection_probes.push_back(probe);
-			}
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -461,7 +458,7 @@ void Renderer::renderDeferred()
 	vec3 camera_pos = Camera::current->eye;
 	float best_dist = FLT_MAX;
 
-	for (auto* probe : this->reflection_probes) {
+	for (ReflectionProbeEntity* probe : this->reflection_probes) {
 		float dist = (probe->position - camera_pos).length();
 		if (dist <= best_dist) {
 			best_dist = dist;
@@ -483,7 +480,9 @@ void Renderer::renderDeferred()
 	//disable the shader
 	shader->disable();
 
-	this->renderSphere();
+	for (ReflectionProbeEntity* probe : this->reflection_probes) {
+		probe->renderSphere(this);
+	}
 
 	this->lighting_fbo->unbind();
 	this->lighting_fbo->color_textures[0]->toViewport();
@@ -512,7 +511,7 @@ void Renderer::renderScene(Scene* scene, Camera* camera)
 	}
 
 	if (this->update_ref) {
-		for (auto* probe : this->reflection_probes) {
+		for (ReflectionProbeEntity* probe : this->reflection_probes) {
 			probe->captureEnvironment(scene, this);
 		}
 		this->update_ref = false;

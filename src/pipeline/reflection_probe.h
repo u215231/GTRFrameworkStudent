@@ -23,6 +23,7 @@ namespace SCN {
         float reflection_strength;
         GFX::Texture* cubemap;
         GFX::FBO capture_fbo;
+        GFX::Mesh sphere;
 
         ReflectionProbeEntity();
         ~ReflectionProbeEntity();
@@ -35,6 +36,7 @@ namespace SCN {
         void captureEnvironment(SCN::Scene* scene, SCN::Renderer* renderer);
         void uploadUniforms(GFX::Shader* shader) const;
         void setPosition(const vec3& pos);
+        void renderSphere(SCN::Renderer* renderer);
     };
 }
 

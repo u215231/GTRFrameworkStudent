@@ -73,7 +73,6 @@ namespace SCN {
 		RenderPipeline current_pipeline; 
 		DeferredCommand deferred_command; 
 		Lighting_Type lighting_type;
-		std::vector<GFX::Mesh> spheres; 
 
 		//lab 5
 		bool is_cubemap_reflections;

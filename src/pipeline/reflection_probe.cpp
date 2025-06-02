@@ -12,8 +12,8 @@ using namespace SCN;
 
 ReflectionProbeEntity::ReflectionProbeEntity() 
 {
-    const int w = 206;
-    const int h = 206;
+    const int w = 512;
+    const int h = 512;
 
     range = 10.0f;
     reflection_strength = 40.0f; 
@@ -22,6 +22,8 @@ ReflectionProbeEntity::ReflectionProbeEntity()
     
     capture_fbo.create(w, h, 1, GL_RGBA, GL_UNSIGNED_BYTE, true);
 
+    this->sphere.createSphere(1.0f);
+    this->sphere.uploadToVRAM();
 }
 
 ReflectionProbeEntity::~ReflectionProbeEntity() 
@@ -88,4 +90,45 @@ void ReflectionProbeEntity::uploadUniforms(GFX::Shader* shader) const
 
 void ReflectionProbeEntity::setPosition(const vec3& pos) {
     this->position = pos;
+    this->root.model.setIdentity();
+    this->root.model.setTranslation(pos.x, pos.y, pos.z);
+}
+
+void ReflectionProbeEntity::renderSphere(SCN::Renderer* renderer)
+{
+    Camera* camera = Camera::current;
+
+    glEnable(GL_DEPTH_TEST);
+    assert(glGetError() == GL_NO_ERROR);
+
+    GFX::Shader* shader = GFX::Shader::Get("sphere");
+    if (!shader)
+        return;
+    shader->enable();
+
+    Matrix44 m;
+    m.setTranslation(
+        this->root.model.getTranslation().x,
+        this->root.model.getTranslation().y,
+        this->root.model.getTranslation().z
+    );
+    m.scale(0.25, 0.25, 0.25);
+
+    shader->setUniform("u_model", m);
+    shader->setUniform("u_viewprojection", camera->viewprojection_matrix);
+    shader->setUniform("u_camera_position", camera->eye);
+
+
+    this->uploadUniforms(shader);
+
+
+    if (renderer->render_wireframe)
+        glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+
+    this->sphere.render(GL_TRIANGLES);
+
+    shader->disable();
+
+    glDisable(GL_BLEND);
+    glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 }
