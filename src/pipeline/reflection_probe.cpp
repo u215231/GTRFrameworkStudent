@@ -15,7 +15,6 @@ ReflectionProbeEntity::ReflectionProbeEntity()
     width = 512;
     height = 512;
 
-    range = 10.0f;
     reflection_strength = 40.0f; 
 
     cubemap.createCubemap(width, height, NULL, GL_RGB, GL_UNSIGNED_INT, true);
@@ -80,7 +79,7 @@ void ReflectionProbeEntity::uploadUniforms(GFX::Shader* shader) const
 {
     shader->setUniform("u_reflection_probe", (GFX::Texture*)&cubemap, 10);
     shader->setUniform("u_reflection_strength", reflection_strength); 
-    shader->setUniform("u_probe_position", root.model.getTranslation()); //root.model.getTranslation()); //position);
+    shader->setUniform("u_probe_position", root.model.getTranslation());
     shader->setUniform("u_probe_range", range);
 }
 
@@ -124,9 +123,9 @@ ReflectionProbeGrid::ReflectionProbeGrid()
 {
     name = "reflection_probes";
     render_spheres_mode = true;
-    probe_grid_dimensions = vec3(7.0, 2.0, 7.0);
-    probe_spacing = 0.8f;
-    probe_grid_origin = vec3(0.0, 1.25, 0.0);
+    probe_grid_dimensions = vec3(4.0, 2.0, 8.0);
+    probe_spacing = 1.0f;
+    probe_grid_origin = vec3(-0.75, 1.25, 0.0);
     create();
 }
 
@@ -149,6 +148,7 @@ void ReflectionProbeGrid::renderSpheres(SCN::Renderer* renderer)
 void ReflectionProbeGrid::create()
 {
     clear();
+
     vec3 grid_size = probe_grid_dimensions * probe_spacing;
     vec3 half_grid = grid_size * 0.5f;
 

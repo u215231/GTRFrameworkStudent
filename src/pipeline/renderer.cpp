@@ -49,13 +49,8 @@ Renderer::Renderer(const char* shader_atlas_filename)
 	this->is_cubemap_reflections = true;
 	this->update_ref = false;
 
-	this->probe_grid_dimensions = vec3(7.0, 2.0, 7.0);
-	this->probe_spacing = 0.8f;
-	vec3 grid_size = probe_grid_dimensions * probe_spacing;
-	vec3 half_grid = grid_size * 0.5f;
-	this->probe_grid_origin = vec3(0.0, 1.25, 0.0) - half_grid;
-	this->closest_probe = nullptr;
 	this->probe_grid = new ReflectionProbeGrid();
+	this->closest_probe = nullptr;
 }
 
 Renderer::~Renderer()
@@ -429,7 +424,9 @@ void Renderer::renderDeferred()
 	//disable the shader
 	shader->disable();
 
-	this->probe_grid->renderSpheres(this);
+	if (this->probe_grid->render_spheres_mode) {
+		this->probe_grid->renderSpheres(this);
+	}
 
 	this->lighting_fbo->unbind();
 	this->lighting_fbo->color_textures[0]->toViewport();
@@ -539,12 +536,12 @@ void Renderer::showUI()
 		this->update_ref = true;
 	}
 
-	//Render spheres
-	static int reflection_spheres = (int)this->probe_grid->render_spheres_mode;
+	//Render Spheres toggle
+	static int render_spheres = (int)this->probe_grid->render_spheres_mode;
 	ImGui::Separator();
-	ImGui::Text("Render reflection spheres");
-	ImGui::SliderInt("Spheres", &reflection_spheres, 0, 1);
-	this->probe_grid->render_spheres_mode = (bool)reflection_spheres;
+	ImGui::Text("Render Spheres Toggle\n(0 No Spheres, 1 Spheres)");
+	ImGui::SliderInt("Render Spheres?", &render_spheres, 0, 1);
+	this->probe_grid->render_spheres_mode = (bool)render_spheres;
 
 	//reflection strenght slider
 	float strength = this->closest_probe->reflection_strength;
@@ -552,7 +549,6 @@ void Renderer::showUI()
 	ImGui::Text("Reflection Strength");
 	ImGui::SliderFloat("Strength", &strength, 0.0f, 50.0f);
 	this->closest_probe->reflection_strength = strength;
-
 }
 
 #else
