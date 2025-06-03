@@ -100,6 +100,7 @@ namespace SCN {
 		void renderShaderSinglePass(Camera* camera, DrawCommand draw_command, const char* shader_name) const;
 		void renderShaderMultiPass(Camera* camera, DrawCommand draw_command, const char* shader_name) const;
 		void renderFBO(Camera* camera, GFX::FBO* fbo, const char* shader_name);
+		void renderFBO_Deferred(Camera* camera, GFX::FBO* fbo, const char* shader_name);
 		void renderShadow(Camera* light_camera, GFX::FBO* shadow_fbo) const;
 		void renderForward();
 		void renderDeferred();

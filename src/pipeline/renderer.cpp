@@ -306,6 +306,74 @@ void Renderer::renderFBO(Camera* camera, GFX::FBO* fbo, const char* shader_name)
 	fbo->unbind();
 }
 
+void Renderer::renderFBO_Deferred(Camera* camera, GFX::FBO* fbo, const char* shader_name)
+{
+	fbo->bind();
+
+	glClearColor(
+		this->scene->background_color.x,
+		this->scene->background_color.y,
+		this->scene->background_color.z,
+		1.0
+	);
+
+	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+	GFX::checkGLErrors();
+
+	if (this->skybox_cubemap) {
+		this->renderSkybox(camera, this->skybox_cubemap);
+	}
+
+	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+
+	this->renderFBO(camera, this->deferred_command.gbuffer_FBO, "gbuffer_fill");
+
+	//get the full-screen quad mesh
+	GFX::Mesh* quad = GFX::Mesh::getQuad();
+
+	this->deferred_command.gbuffer_FBO->depth_texture->copyTo(this->lighting_fbo->depth_texture);
+
+	this->lighting_fbo->bind();
+
+	//enable the lighting shader
+	GFX::Shader* shader = GFX::Shader::Get(shader_name);
+	if (!shader)
+		return;
+	shader->enable();
+
+	//send light uniforms
+	this->light_command.uploadUniforms(shader);
+	this->shadow_command.uploadUniforms(shader);
+	shader->setUniform("u_camera_position", camera->eye);
+	shader->setUniform("u_inv_vp_mat", camera->viewprojection_matrix.getInverse());
+
+	Vector2 window_size = CORE::getWindowSize();
+	shader->setUniform("u_res_inv", vec2(1.0f / window_size.x, 1.0f / window_size.y));
+	shader->setUniform("u_lighting_type", (int)this->lighting_type);
+	shader->setUniform("u_pbr_probes", (int)this->is_cubemap_reflections);
+
+	//send geometric buffer textures
+	this->deferred_command.uploadTextures(shader);
+
+	//glDisable(GL_DEPTH_TEST);
+
+	//render the full-screen quad
+	quad->render(GL_TRIANGLES);
+	glEnable(GL_DEPTH_TEST);
+
+	//disable the shader
+	shader->disable();
+
+	this->lighting_fbo->unbind();
+
+	glEnable(GL_BLEND);
+	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+	glDisable(GL_BLEND);
+
+	fbo->unbind();
+	this->lighting_fbo->color_textures[0]->toViewport();
+}
+
 //renders the meshes from the point of view of the light camera in textures menu
 void Renderer::renderShadow(Camera* light_camera, GFX::FBO* shadow_fbo) const
 {
