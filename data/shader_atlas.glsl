@@ -610,7 +610,6 @@ void main()
 
 	vec3 F0 = mix(vec3(0.04), albedo, metalness);
 
-	// Debug: ask to Juan wht the world_position and positon are different.
 	vec3 position = texture(u_gbuffer_position, uv).xyz;
 	float shadow = texture(u_gbuffer_shadow, uv).r;
     
@@ -623,10 +622,6 @@ void main()
 	vec3 view_dir = normalize(world_position - u_camera_position);
 	vec3 reflect_dir = reflect(view_dir, normal);
 	vec3 reflection_color = texture(u_reflection_probe, reflect_dir).rgb;
-
-	// Debug: Test cubemap sampling with fixed direction
-	// vec3 test_dir = vec3(0.0, 1.0, 0.0); // Sample top face
-	// vec3 test_color = texture(u_reflection_probe, test_dir).rgb;
 	
 	vec3 total_accumulation = vec3(0.0);
 	vec3 pbr;
@@ -654,7 +649,7 @@ void main()
 			accumulation *= compute_pbr(light_position, u_camera_position, world_position, normal, roughness, F0);
 		
 		if (u_lighting_type == PBR && bool(u_pbr_probes))
-			accumulation *= compute_pbr_probes(light_position, u_camera_position, world_position, normal, roughness, F0, reflection_color, u_reflection_strength, metalness); //* textureLod(u_reflection_probe, R, roughness * 5.0 ).xyz;	
+			accumulation *= compute_pbr_probes(light_position, u_camera_position, world_position, normal, roughness, F0, reflection_color, u_reflection_strength, metalness);
 		
 		total_accumulation += accumulation;
 
