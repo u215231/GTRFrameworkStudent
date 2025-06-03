@@ -7,6 +7,7 @@
 #include "../extra/cJSON.h"
 #include "../core/ui.h"
 #include "../gfx/texture.h"
+#include "../pipeline/reflection_probe.h"
 
 SCN::Scene* SCN::Scene::instance = NULL;
 

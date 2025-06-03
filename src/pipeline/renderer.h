@@ -83,6 +83,7 @@ namespace SCN {
 		vec3 probe_grid_dimensions;  //how many probes in each axis
 		float probe_spacing; //X units between probes
 		std::vector<ReflectionProbeEntity*> reflection_probes;
+		ReflectionProbeGrid* probe_grid;
 		ReflectionProbeEntity* closest_probe;
 
 
@@ -94,17 +95,17 @@ namespace SCN {
 		void setupScene();
 
 		//parsers of the elements of the scene
-		void parseNode(SCN::Node* node, Camera* cam);
+		void parseNode(SCN::Node* node, Camera* camera);
+		void parseReflectionProbes(Scene* scene);
 		void parsePrefabs(std::vector<SCN::PrefabEntity*> prefab_list, Camera* camera);
 		void parseSceneEntities(SCN::Scene* scene, Camera* camera);
 
 		//renderers of the elements of the scene
-		void renderSkybox(GFX::Texture* cubemap);
+		void renderSkybox(Camera* camera, GFX::Texture* cubemap);
 		void renderShaderSinglePass(Camera* camera, DrawCommand draw_command, const char* shader_name) const;
 		void renderShaderMultiPass(Camera* camera, DrawCommand draw_command, const char* shader_name) const;
 		void renderFBO(Camera* camera, GFX::FBO* fbo, const char* shader_name);
 		void renderShadow(Camera* light_camera, GFX::FBO* shadow_fbo) const;
-		void renderSphere();
 		void renderForward();
 		void renderDeferred();
 		void renderScene(SCN::Scene* scene, Camera* camera); 

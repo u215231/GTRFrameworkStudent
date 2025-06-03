@@ -18,11 +18,16 @@ namespace SCN {
     class ReflectionProbeEntity : public SCN::BaseEntity
     {
     public:
+        int width;
+        int height;
+
         vec3 position;
         float range;
         float reflection_strength;
-        GFX::Texture* cubemap;
+        GFX::Texture cubemap;
         GFX::FBO capture_fbo;
+        
+        float sphere_radius;
         GFX::Mesh sphere;
 
         ReflectionProbeEntity();
@@ -37,6 +42,25 @@ namespace SCN {
         void uploadUniforms(GFX::Shader* shader) const;
         void setPosition(const vec3& pos);
         void renderSphere(SCN::Renderer* renderer);
+    };
+
+    class ReflectionProbeGrid : public SCN::BaseEntity
+    {
+    public:
+        vec3 probe_grid_dimensions;
+        float probe_spacing;
+        vec3 probe_grid_origin;
+        std::vector<ReflectionProbeEntity*> reflection_probes;
+        bool render_spheres_mode;
+
+        ReflectionProbeGrid();
+        ~ReflectionProbeGrid();
+
+        ENTITY_METHODS(ReflectionProbeGrid, REFLECTION_PROBE_GRID, 2, 4);
+
+        void create();
+        void clear();
+        void renderSpheres(SCN::Renderer* render);
     };
 }
 

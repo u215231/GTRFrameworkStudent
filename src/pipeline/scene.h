@@ -41,6 +41,8 @@ namespace SCN {
 		SPLINE = 21,
 		TRIGGER = 22,
 
+		REFLECTION_PROBE_GRID = 30,
+
 		UNKNOWN = 0xFF
 	};
 
@@ -154,6 +156,5 @@ namespace SCN {
 		GFX::Texture* getSkyboxCubemap() const;
 		BaseEntity* getEntity(std::string name);
 		RayTestResult testRay( Ray& ray, uint8 layers = 0xFF );
-
 	};
 };

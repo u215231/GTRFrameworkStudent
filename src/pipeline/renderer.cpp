@@ -26,7 +26,6 @@ Renderer::Renderer(const char* shader_atlas_filename)
 
 	this->scene = nullptr;
 	this->skybox_cubemap = nullptr;
-	//this->reflection_probe = nullptr;
 
 	if (!GFX::Shader::LoadAtlas(shader_atlas_filename))
 		exit(1);
@@ -35,10 +34,7 @@ Renderer::Renderer(const char* shader_atlas_filename)
 	this->sphere.createSphere(1.0f);
 	this->sphere.uploadToVRAM();
 
-	this->deferred_command.init(window_size.x, window_size.y); 
-	
-	//this->reflection_probe = new SCN::ReflectionProbeEntity();
-	//this->reflection_probe->setPosition(vec3(-1.0, 0.5, 0.0));
+	this->deferred_command.init(window_size.x, window_size.y);
 
 	this->lighting_fbo = new GFX::FBO();
 	this->lighting_fbo->create(window_size.x, window_size.y, 1, GL_RGBA, GL_UNSIGNED_BYTE, true);
@@ -53,23 +49,13 @@ Renderer::Renderer(const char* shader_atlas_filename)
 	this->is_cubemap_reflections = true;
 	this->update_ref = false;
 
-	this->probe_grid_dimensions = vec3(3.0, 1.0, 3.0);
-	this->probe_spacing = 1.5f;
+	this->probe_grid_dimensions = vec3(7.0, 2.0, 7.0);
+	this->probe_spacing = 0.8f;
 	vec3 grid_size = probe_grid_dimensions * probe_spacing;
 	vec3 half_grid = grid_size * 0.5f;
 	this->probe_grid_origin = vec3(0.0, 1.25, 0.0) - half_grid;
 	this->closest_probe = nullptr;
-
-	for (int x = 0; x <= probe_grid_dimensions.x; ++x)
-		for (int y = 0; y <= probe_grid_dimensions.y; ++y)
-			for (int z = 0; z <= probe_grid_dimensions.z; ++z) {
-				vec3 pos = probe_grid_origin + vec3(x, y, z) * probe_spacing;
-
-				ReflectionProbeEntity* probe = new ReflectionProbeEntity();
-				probe->setPosition(pos);
-				probe->range = probe_spacing * 1.5f;
-				this->reflection_probes.push_back(probe);
-			}
+	this->probe_grid = new ReflectionProbeGrid();
 }
 
 Renderer::~Renderer()
@@ -77,7 +63,7 @@ Renderer::~Renderer()
 	delete this->scene;
 	delete this->skybox_cubemap;
 	delete this->lighting_fbo;
-	//delete this->reflection_probe;
+	delete this->probe_grid;
 }
 
 void Renderer::setupScene()
@@ -90,7 +76,7 @@ void Renderer::setupScene()
 ///////////////////////////////////////////////////////////////////////////////
 
 //store children prefab entities
-void Renderer::parseNode(Node* node, Camera* cam)
+void Renderer::parseNode(Node* node, Camera* camera)
 {
 	if (!node) 
 		return;
@@ -104,7 +90,7 @@ void Renderer::parseNode(Node* node, Camera* cam)
 	}
 
 	for (Node* child : node->children) {
-		this->parseNode(child, cam);
+		this->parseNode(child, camera);
 	}
 }
 
@@ -134,10 +120,19 @@ void Renderer::parsePrefabs(std::vector<PrefabEntity*> prefab_list, Camera* came
 		});
 }
 
+void Renderer::parseReflectionProbes(Scene* scene)
+{
+	for (BaseEntity* entity : scene->entities) {
+		if (entity->visible && entity->getType() == eEntityType::REFLECTION_PROBE_GRID)
+			this->probe_grid = (ReflectionProbeGrid*)entity;
+	}
+}
+
 void Renderer::parseSceneEntities(Scene* scene, Camera* camera)
 {
 	this->light_list.clear();
 	this->prefab_list.clear();
+	//this->reflection_probes.clear();
 
 	for (BaseEntity* entity : scene->entities) {
 		if (!entity->visible) {
@@ -151,8 +146,7 @@ void Renderer::parseSceneEntities(Scene* scene, Camera* camera)
 				this->light_list.push_back((LightEntity*)entity); 
 				break;
 			case eEntityType::REFLECTION_PROBE:
-				//this->reflection_probe = (ReflectionProbeEntity*)entity;  
-				this->reflection_probes.push_back((ReflectionProbeEntity*)entity);
+				//this->reflection_probes.push_back((ReflectionProbeEntity*)entity);
 				break;
 		}
 	}
@@ -167,10 +161,8 @@ void Renderer::parseSceneEntities(Scene* scene, Camera* camera)
 ///////////////////////////////////////////////////////////////////////////////
 
 //renders the sky box of the scene
-void Renderer::renderSkybox(GFX::Texture* cubemap)
+void Renderer::renderSkybox(Camera* camera, GFX::Texture* cubemap)
 {
-	Camera* camera = Camera::current;
-
 	//apply skybox necesarry config:
 	//no blending, no dpeth test, we are always rendering the skybox
 	//set the culling aproppiately, since we just want the back faces
@@ -261,7 +253,6 @@ void Renderer::renderShaderMultiPass(Camera* camera, DrawCommand draw_command, c
 
 	int s = 0;
 	for (int i = 0; i < this->light_command.num_lights; i++) {
-
 		if (i == 0)
 			glDisable(GL_BLEND);
 		else 
@@ -291,48 +282,6 @@ void Renderer::renderShaderMultiPass(Camera* camera, DrawCommand draw_command, c
 	glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 }
 
-void Renderer::renderSphere()
-{
-	Camera* camera = Camera::current;
-
-	glEnable(GL_DEPTH_TEST);
-	assert(glGetError() == GL_NO_ERROR);
-
-	GFX::Shader* shader = GFX::Shader::Get("sphere");
-	if (!shader)
-		return;
-	shader->enable();
-
-	Matrix44 m;
-	m.setTranslation(
-		/*this->reflection_probe->root.model.getTranslation().x,
-		this->reflection_probe->root.model.getTranslation().y, 
-		this->reflection_probe->root.model.getTranslation().z*/
-		this->reflection_probes[0]->root.model.getTranslation().x,
-		this->reflection_probes[0]->root.model.getTranslation().y,
-		this->reflection_probes[0]->root.model.getTranslation().z
-	);
-	m.scale(0.25, 0.25, 0.25);
-	
-	shader->setUniform("u_model", m);
-	shader->setUniform("u_viewprojection", camera->viewprojection_matrix);
-	shader->setUniform("u_camera_position", camera->eye);
-
-
-	this->reflection_probes[0]->uploadUniforms(shader);
-
-
-	if (this->render_wireframe)
-		glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
-
-	this->sphere.render(GL_TRIANGLES);
-
-	shader->disable();
-
-	glDisable(GL_BLEND);
-	glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
-}
-
 void Renderer::renderFBO(Camera* camera, GFX::FBO* fbo, const char* shader_name)
 {
 	fbo->bind();
@@ -348,7 +297,7 @@ void Renderer::renderFBO(Camera* camera, GFX::FBO* fbo, const char* shader_name)
 	GFX::checkGLErrors();
 
 	if (this->skybox_cubemap) {
-		this->renderSkybox(this->skybox_cubemap);
+		this->renderSkybox(camera, this->skybox_cubemap);
 	}
 
 	for (DrawCommand draw_command : this->draw_command_opaque_list) {
@@ -392,7 +341,7 @@ void Renderer::renderForward()
 	GFX::checkGLErrors();
 
 	if (this->skybox_cubemap) {
-		this->renderSkybox(this->skybox_cubemap);
+		this->renderSkybox(Camera::current, this->skybox_cubemap);
 	}
 
 	for (DrawCommand draw_command : this->draw_command_opaque_list) {
@@ -413,7 +362,7 @@ void Renderer::renderForward()
 	}
 
 	//added temporary
-	this->renderSphere();
+	//this->renderSphere();
 
 	glDisable(GL_BLEND);
 }
@@ -458,7 +407,7 @@ void Renderer::renderDeferred()
 	vec3 camera_pos = Camera::current->eye;
 	float best_dist = FLT_MAX;
 
-	for (ReflectionProbeEntity* probe : this->reflection_probes) {
+	for (ReflectionProbeEntity* probe : this->probe_grid->reflection_probes) {
 		float dist = (probe->position - camera_pos).length();
 		if (dist <= best_dist) {
 			best_dist = dist;
@@ -480,9 +429,7 @@ void Renderer::renderDeferred()
 	//disable the shader
 	shader->disable();
 
-	for (ReflectionProbeEntity* probe : this->reflection_probes) {
-		probe->renderSphere(this);
-	}
+	this->probe_grid->renderSpheres(this);
 
 	this->lighting_fbo->unbind();
 	this->lighting_fbo->color_textures[0]->toViewport();
@@ -511,7 +458,7 @@ void Renderer::renderScene(Scene* scene, Camera* camera)
 	}
 
 	if (this->update_ref) {
-		for (ReflectionProbeEntity* probe : this->reflection_probes) {
+		for (ReflectionProbeEntity* probe : this->probe_grid->reflection_probes) {
 			probe->captureEnvironment(scene, this);
 		}
 		this->update_ref = false;
@@ -582,7 +529,7 @@ void Renderer::showUI()
 	//activate cubemap reflections
 	static int cubemap_reflection_mode = (int)this->is_cubemap_reflections;
 	ImGui::Separator();
-	ImGui::Text("Is Cubemap Mode?");
+	ImGui::Text("Is Reflection Probes Mode?");
 	ImGui::SliderInt("Cubemap", &cubemap_reflection_mode, 0, 1);
 	this->is_cubemap_reflections = (bool)cubemap_reflection_mode;
 
@@ -591,6 +538,13 @@ void Renderer::showUI()
 	if (ImGui::Button("Update Reflections")) {
 		this->update_ref = true;
 	}
+
+	//Render spheres
+	static int reflection_spheres = (int)this->probe_grid->render_spheres_mode;
+	ImGui::Separator();
+	ImGui::Text("Render reflection spheres");
+	ImGui::SliderInt("Spheres", &reflection_spheres, 0, 1);
+	this->probe_grid->render_spheres_mode = (bool)reflection_spheres;
 
 	//reflection strenght slider
 	float strength = this->closest_probe->reflection_strength;
