@@ -634,7 +634,7 @@ void main()
 	{
 		if (u_light_types[i] == NO_LIGHT)
 			continue;
-		
+
 		vec3 light_position = u_light_types[i] == DIRECTIONAL_LIGHT ? u_light_directions[i] : u_light_positions[i] - world_position;
 
 		vec3 accumulation = vec3(1.0);
@@ -750,7 +750,6 @@ void main()
 			accumulation *= compute_phong(light_position, u_camera_position, world_position, normal, u_shininess);
 		else
 			accumulation *= compute_pbr(light_position, u_camera_position, world_position, normal, roughness, F0);
-;
 		
 		total_accumulation += accumulation;
 

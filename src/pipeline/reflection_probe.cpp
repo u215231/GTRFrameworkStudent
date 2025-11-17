@@ -16,6 +16,7 @@ ReflectionProbeEntity::ReflectionProbeEntity()
     height = 512;
 
     reflection_strength = 40.0f; 
+    range = 1.0f;
 
     cubemap.createCubemap(width, height, NULL, GL_RGB, GL_UNSIGNED_INT, true);
     capture_fbo.create(width, height, 1, GL_RGBA, GL_UNSIGNED_BYTE, true);
@@ -122,6 +123,7 @@ void ReflectionProbeEntity::renderSphere(SCN::Renderer* renderer)
 ReflectionProbeGrid::ReflectionProbeGrid()
 {
     name = "reflection_probes";
+    update_reflections_button = false;
     render_spheres_mode = true;
     probe_grid_dimensions = vec3(4.0, 2.0, 8.0);
     probe_spacing = 1.0f;
@@ -170,4 +172,32 @@ void ReflectionProbeGrid::clear()
     for (ReflectionProbeEntity* reflection_probe : reflection_probes)
         delete reflection_probe;
     reflection_probes.clear();
+}
+
+void ReflectionProbeGrid::updateClosestProbe(GFX::Shader* shader)
+{
+    vec3 camera_pos = Camera::current->eye;
+    float best_dist = FLT_MAX;
+
+    for (ReflectionProbeEntity* probe : reflection_probes) {
+        float dist = (probe->position - camera_pos).length();
+        if (dist <= best_dist) {
+            best_dist = dist;
+            closest_probe = probe;
+        }
+    }
+
+    if (closest_probe != nullptr) {
+        closest_probe->uploadUniforms(shader);
+    }
+}
+
+void ReflectionProbeGrid::updatdateReflections(SCN::Renderer* renderer)
+{
+    if (update_reflections_button) {
+        for (ReflectionProbeEntity* probe : reflection_probes) {
+            probe->captureEnvironment(scene, renderer);
+        }
+        update_reflections_button = false;
+    }
 }

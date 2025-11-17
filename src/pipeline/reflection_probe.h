@@ -20,13 +20,11 @@ namespace SCN {
     public:
         int width;
         int height;
-
         vec3 position;
         float range;
         float reflection_strength;
         GFX::Texture cubemap;
         GFX::FBO capture_fbo;
-        
         float sphere_radius;
         GFX::Mesh sphere;
 
@@ -51,7 +49,9 @@ namespace SCN {
         float probe_spacing;
         vec3 probe_grid_origin;
         std::vector<ReflectionProbeEntity*> reflection_probes;
+        SCN::ReflectionProbeEntity* closest_probe;
         bool render_spheres_mode;
+        bool update_reflections_button;
 
         ReflectionProbeGrid();
         ~ReflectionProbeGrid();
@@ -60,7 +60,9 @@ namespace SCN {
 
         void create();
         void clear();
+        void updateClosestProbe(GFX::Shader* shader);
         void renderSpheres(SCN::Renderer* render);
+        void updatdateReflections(SCN::Renderer* renderer);
     };
 }
 

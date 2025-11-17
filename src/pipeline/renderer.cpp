@@ -466,35 +466,17 @@ void Renderer::renderDeferred()
 	this->deferred_command.uploadTextures(shader);
 
 	//send cubemap reflections
-	//this->reflection_probe->uploadUniforms(shader);
-	vec3 camera_pos = Camera::current->eye;
-	float best_dist = FLT_MAX;
-
-	for (ReflectionProbeEntity* probe : this->probe_grid->reflection_probes) {
-		float dist = (probe->position - camera_pos).length();
-		if (dist <= best_dist) {
-			best_dist = dist;
-			this->closest_probe = probe;
-		}
-	}
-
-	if (this->closest_probe != nullptr) {
-		this->closest_probe->uploadUniforms(shader);
-	}
-
-
-	//glDisable(GL_DEPTH_TEST);
+	this->probe_grid->updateClosestProbe(shader);
 
 	//render the full-screen quad
+	//glDisable(GL_DEPTH_TEST);
 	quad->render(GL_TRIANGLES);
 	glEnable(GL_DEPTH_TEST);
 
 	//disable the shader
 	shader->disable();
 
-	if (this->probe_grid->render_spheres_mode) {
-		this->probe_grid->renderSpheres(this);
-	}
+	this->probe_grid->renderSpheres(this);
 
 	this->lighting_fbo->unbind();
 	this->lighting_fbo->color_textures[0]->toViewport();
@@ -522,12 +504,13 @@ void Renderer::renderScene(Scene* scene, Camera* camera)
 			break;
 	}
 
-	if (this->update_ref) {
-		for (ReflectionProbeEntity* probe : this->probe_grid->reflection_probes) {
-			probe->captureEnvironment(scene, this);
-		}
-		this->update_ref = false;
-	}
+	this->probe_grid->updatdateReflections(this);
+	//if (this->update_ref) {
+	//	for (ReflectionProbeEntity* probe : this->probe_grid->reflection_probes) {
+	//		probe->captureEnvironment(scene, this);
+	//	}
+	//	this->update_ref = false;
+	//}
 }
 
 ///////////////////////////////////////////////////////////////////////////////
@@ -601,7 +584,7 @@ void Renderer::showUI()
 	//Capture reflections updater
 	ImGui::Separator();
 	if (ImGui::Button("Update Reflections")) {
-		this->update_ref = true;
+		this->probe_grid->update_reflections_button = true;
 	}
 
 	//Render Spheres toggle
@@ -612,11 +595,11 @@ void Renderer::showUI()
 	this->probe_grid->render_spheres_mode = (bool)render_spheres;
 
 	//reflection strenght slider
-	float strength = this->closest_probe->reflection_strength;
+	float strength = this->probe_grid->closest_probe->reflection_strength;
 	ImGui::Separator();
 	ImGui::Text("Reflection Strength");
 	ImGui::SliderFloat("Strength", &strength, 0.0f, 50.0f);
-	this->closest_probe->reflection_strength = strength;
+	this->probe_grid->closest_probe->reflection_strength = strength;
 }
 
 #else
