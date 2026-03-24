@@ -32,6 +32,7 @@
 *.out
 *.app
 
+# Visual Studio
 /.vs
 /visualstudio/.vs
 visualstudio/VS2015/Debug
@@ -69,4 +70,8 @@ visualstudio/VS2015/Release/visualstudio.log
 /visualstudio/VS2015/Debug
 /visualstudio/VS2015/Release
 
+# Build and CMake
 build/
+
+# Windows
+desktop.ini
